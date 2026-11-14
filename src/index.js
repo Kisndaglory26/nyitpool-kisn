@@ -93,6 +93,43 @@ class HttpError extends Error {
   constructor(status, msg) { super(msg); this.status = status; }
 }
 
+/* ============================ queue hours (America/New_York) ============================ */
+
+const TZ = 'America/New_York';
+const QUEUE_OPEN = 9 * 60;        // 9:00am
+const QUEUE_CLOSE = 21 * 60;      // 9:00pm — queue clears, no joins
+const SOLO_BLOCK_START = 12 * 60; // noon
+const SOLO_BLOCK_END = 18 * 60;   // 6:00pm — no solo/1v1 joins in this window
+
+function nyMinutes(env) {
+  if (env.TEST_TIME_OVERRIDE && /^\d{1,2}:\d{2}$/.test(env.TEST_TIME_OVERRIDE)) {
+    const [h, m] = env.TEST_TIME_OVERRIDE.split(':').map(Number);
+    return (h % 24) * 60 + m;
+  }
+  const parts = new Intl.DateTimeFormat('en-US',
+    { timeZone: TZ, hour: 'numeric', minute: 'numeric', hour12: false }).formatToParts(new Date());
+  const h = Number(parts.find(p => p.type === 'hour').value) % 24;
+  const m = Number(parts.find(p => p.type === 'minute').value);
+  return h * 60 + m;
+}
+
+function queueState(env) {
+  const t = nyMinutes(env);
+  if (t < QUEUE_OPEN || t >= QUEUE_CLOSE) return { open: false, solo: false };
+  return { open: true, solo: !(t >= SOLO_BLOCK_START && t < SOLO_BLOCK_END) };
+}
+
+/* outside hours the queue wipes itself on the first touch — no cron needed */
+async function clearIfClosed(db, env) {
+  const state = queueState(env);
+  if (state.open) return state;
+  await db.batch([
+    db.prepare("UPDATE queue_parties SET status = 'skipped' WHERE status IN ('waiting','playing')"),
+    db.prepare('DELETE FROM skip_votes'),
+  ]);
+  return state;
+}
+
 /* ============================ queue helpers ============================ */
 
 async function promoteNext(db) {
@@ -246,18 +283,27 @@ async function handleApi(request, env, url) {
 
   /* ---------- party queue ---------- */
   if (pathname === '/api/queue' && method === 'GET') {
+    const hours = await clearIfClosed(env.DB, env);
     const { results } = await env.DB.prepare(
       PARTY_SELECT + ` WHERE p.status IN ('playing', 'waiting')
                        ORDER BY CASE p.status WHEN 'playing' THEN 0 ELSE 1 END, p.position`
     ).all();
-    return json({ parties: results.map(shapeParty) });
+    return json({ parties: results.map(shapeParty), hours });
   }
 
   if (pathname === '/api/queue/join' && method === 'POST') {
     const user = await requireUser(request, env);
+    const state = queueState(env);
+    if (!state.open) return bad('queue is closed — open 9am to 9pm ET', 403);
     const body = await request.json().catch(() => null);
     const format = body?.format;
-    if (!['1v1', '2v2'].includes(format)) return bad('format must be 1v1 or 2v2');
+    if (!['solo', 'duo'].includes(format)) return bad('format must be solo or duo');
+    if (format === 'solo' && (body?.p2_user_id || body?.p2_guest_name)) {
+      return bad('solo parties have no second player');
+    }
+    if (format === 'solo' && !state.solo) {
+      return bad('solo play is restricted — duo only from noon to 6pm ET', 403);
+    }
     let p2UserId = null, p2Guest = null;
     if (body?.p2_user_id) {
       const mate = await env.DB.prepare('SELECT id FROM users WHERE id = ?').bind(Number(body.p2_user_id)).first();
@@ -288,6 +334,7 @@ async function handleApi(request, env, url) {
     const user = await requireUser(request, env);
     const party = await env.DB.prepare('SELECT * FROM queue_parties WHERE id = ?').bind(Number(m[1])).first();
     if (!party) return bad('not found', 404);
+    if (party.format !== 'duo') return bad('solo parties have no teammate slot');
     if (party.status !== 'waiting') return bad('party already in play');
     const body = await request.json().catch(() => null);
     const isCreator = party.created_by_user_id === user.id;

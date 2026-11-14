@@ -116,6 +116,12 @@
     max-width:680px;margin:0 auto;
   }
   .hub-head{display:flex;align-items:center;gap:10px;flex-wrap:wrap}
+  .q-hours{
+    text-align:center;font-size:.85rem;font-weight:700;border-radius:12px;
+    padding:8px 14px;border:1px solid var(--ok);color:var(--ok);
+  }
+  .q-hours.duo-only{border-color:var(--warn);color:var(--warn)}
+  .q-hours.closed{border-color:var(--danger);color:var(--danger)}
   .hub-title{font-weight:800;font-size:1.15rem;letter-spacing:.02em}
   .hub-user{
     font-size:.8rem;font-weight:700;color:var(--t2);
@@ -543,6 +549,7 @@
         <button id="hub-bell" class="btn-ghost hub-bell" type="button" hidden>🔔<span id="hub-bell-n" class="bell-n" hidden></span></button>
         <button id="hub-admin-btn" class="btn-ghost" type="button" title="Admin unlock">🔒</button>
       </div>
+      <div id="queue-hours" class="q-hours" hidden></div>
 
       <div id="hub-gate">
         <div class="gate-card">
@@ -572,8 +579,8 @@
           <div id="hub-list"></div>
           <form id="hub-join" class="hub-join" autocomplete="off">
             <div class="seg" id="join-format">
-              <button type="button" data-v="1v1" class="on">1v1</button>
-              <button type="button" data-v="2v2">2v2</button>
+              <button type="button" data-v="solo" class="on">Solo</button>
+              <button type="button" data-v="duo">Duo</button>
             </div>
             <input id="join-mate" class="name-input" list="users-dl" placeholder="Teammate (username)" maxlength="20">
             <input id="join-guest" class="name-input" placeholder="or guest name" maxlength="24">
@@ -939,8 +946,10 @@ const Hub = (() => {
   function segVal(root) { return $('[data-v].on', root).dataset.v; }
   function wireSeg(root) {
     $$('button', root).forEach(b => b.addEventListener('click', () => {
+      if (b.disabled) return;
       $$('button', root).forEach(x => x.classList.toggle('on', x === b));
       if (root.id === 'log-format') buildLogSlots();
+      if (root.id === 'join-format') renderHours();
     }));
   }
   ['#join-format', '#log-type', '#log-format', '#log-winner'].forEach(s => wireSeg($(s)));
@@ -967,14 +976,42 @@ const Hub = (() => {
 
   /* ---------- tab 1: live queue ---------- */
   let parties = [];
+  let hours = { open: true, solo: true }; // last known queue window state
   async function refreshQueue() {
     try {
-      parties = (await api('/queue')).parties;
+      const r = await api('/queue');
+      parties = r.parties;
+      hours = r.hours || hours;
     } catch { parties = null; }
     renderQueue();
   }
 
+  function renderHours() {
+    const b = $('#queue-hours');
+    b.hidden = false;
+    b.classList.remove('duo-only', 'closed');
+    if (!hours.open) {
+      b.classList.add('closed');
+      b.textContent = '⛔ Queue closed — opens 9am ET (clears nightly at 9pm)';
+    } else if (!hours.solo) {
+      b.classList.add('duo-only');
+      b.textContent = '🕒 Queue open — DUO ONLY until 6pm ET (solo returns 6–9pm)';
+    } else {
+      b.textContent = '🟢 Queue open — Solo & Duo · 9am–9pm ET';
+    }
+    // gate the join form
+    const soloBtn = $('#join-format [data-v="solo"]');
+    const joinBtn = $('#hub-join .btn-primary');
+    soloBtn.disabled = !hours.solo;
+    joinBtn.disabled = !hours.open;
+    const wantSolo = segVal($('#join-format')) === 'solo';
+    $('#join-mate').hidden = wantSolo;
+    $('#join-guest').hidden = wantSolo;
+    if (!hours.solo && wantSolo) $('#join-format [data-v="duo"]').click();
+  }
+
   function renderQueue() {
+    renderHours();
     const playing = parties ? parties.filter(p => p.status === 'playing') : [];
     const waiting = parties ? parties.filter(p => p.status === 'waiting') : [];
     const nowBox = $('#hub-playing');
@@ -1005,9 +1042,13 @@ const Hub = (() => {
     }
     if (!waiting.length) {
       const empty = el('div', 'q-empty');
-      empty.innerHTML = playing.length
-        ? 'Nobody waiting — table is covered.'
-        : '<span class="big">Table is free</span>Join the queue to claim it.';
+      if (!hours.open) {
+        empty.innerHTML = '<span class="big">Queue closed</span>Opens 9am ET — nightly clear at 9pm.';
+      } else {
+        empty.innerHTML = playing.length
+          ? 'Nobody waiting — table is covered.'
+          : '<span class="big">Table is free</span>Join the queue to claim it.';
+      }
       list.append(empty);
     }
     waiting.forEach((p, k) => {
@@ -1030,7 +1071,7 @@ const Hub = (() => {
           await api('/queue/' + p.id, { method: 'DELETE' }); refreshAll();
         }));
       }
-      if (!p.p2 && p.format === '2v2' && me) {
+      if (!p.p2 && p.format === 'duo' && me) {
         const open = p.p1 && p.p1.name !== me.nickname;
         if (open) btns.append(actBtn('+ Team up', async () => {
           await api('/queue/' + p.id + '/teammate', { method: 'PATCH', headers: JSON_HDR, body: '{}' });

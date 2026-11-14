@@ -20,10 +20,11 @@ CREATE TABLE IF NOT EXISTS users (
   created_at     INTEGER NOT NULL
 );
 
--- Queue parties (1v1 / 2v2) replacing the placeholder queue_entries table
+-- Queue parties: a party is a TEAM. 'solo' = one player, 'duo' = one or two
+-- players (P2 can be attached later or claimed while waiting).
 CREATE TABLE IF NOT EXISTS queue_parties (
   id               INTEGER PRIMARY KEY AUTOINCREMENT,
-  format           TEXT    NOT NULL CHECK (format IN ('1v1', '2v2')),
+  format           TEXT    NOT NULL CHECK (format IN ('solo', 'duo')),
   status           TEXT    NOT NULL DEFAULT 'waiting'
                    CHECK (status IN ('waiting', 'playing', 'completed', 'skipped')),
   created_by_user_id INTEGER NOT NULL REFERENCES users(id),
