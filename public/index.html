@@ -139,6 +139,7 @@
   }
   .gate-card h3{margin:0;font-size:1.3rem}
   .gate-card label{display:flex;flex-direction:column;gap:6px;font-size:.75rem;font-weight:800;letter-spacing:.14em;color:var(--muted)}
+  .pin-hint{margin-top:-6px;font-size:.72rem;color:var(--muted);text-align:center}
   .gate-seg{align-self:start}
   .seg{display:inline-flex;border:1px solid var(--line);border-radius:10px;overflow:hidden}
   .seg button{padding:8px 14px;font-size:.9rem;font-weight:700;color:var(--muted);background:var(--panel2);transition:.12s}
@@ -564,7 +565,8 @@
           </div>
           <label id="gate-nick-row" hidden>Nickname<input id="f-nick" class="name-input" maxlength="24" autocomplete="off"></label>
           <label>Username<input id="f-user" class="name-input" maxlength="20" autocomplete="username"></label>
-          <label>PIN<input id="f-pin" class="name-input" type="password" inputmode="numeric" maxlength="6" autocomplete="off"></label>
+          <label>PIN<input id="f-pin" class="name-input" type="password" inputmode="numeric" pattern="[0-9]{4,6}" maxlength="6" placeholder="••••" autocomplete="off"></label>
+          <span class="pin-hint">4–6 digits · numbers only — numpad on mobile</span>
           <button id="gate-go" class="btn-primary big" type="button">Sign in</button>
           <p id="gate-err" class="fine" style="color:var(--danger)" hidden></p>
         </div>
@@ -894,6 +896,7 @@ const Hub = (() => {
     const err = m => { const e = $('#gate-err'); e.textContent = m; e.hidden = false; };
     const username = $('#f-user').value.trim().toLowerCase();
     const pin = $('#f-pin').value.trim();
+    if (!/^\d{4,6}$/.test(pin)) return err('PIN must be 4–6 digits, numbers only');
     try {
       let data;
       if (gateMode === 'create') {
