@@ -4,6 +4,21 @@ Billiards-table portal for the NYIT pool hall: shot clocks, chess-clock game ban
 
 Single-page timer app (`public/index.html`, vanilla JS, no build step) served by a Cloudflare Worker that also exposes `/api/*` endpoints backed by D1.
 
+## Kisn's version
+
+**▶ Try it in Chrome: https://kisndaglory26.github.io/nyitpool-kisn/**
+
+This is my copy of [silverftw/nyitpool](https://github.com/silverftw/nyitpool) (original live site: https://app.nyitpool.workers.dev).
+
+What's different here:
+- **Shot-clock extensions** — `E` / **+30s EXTENSION** adds 30 seconds to the current shot, once per team per rack (based on pro / WPA shot-clock rules).
+- **New rack** — `N` / **NEW RACK** gives both teams their extension back.
+- **EXT READY / EXT USED** badge on each team's panel.
+
+To test: **Table Timer → Shot Timer → Confirm Settings**, press `SPACE` to start, then `E` and `N`.
+
+> The link above hosts the **timer only** (GitHub Pages). The queue, accounts and rankings need the Cloudflare backend — to use those, run it locally with `npm run dev` and open **http://localhost:8787**.
+
 ## Structure
 
 ```
