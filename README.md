@@ -76,7 +76,12 @@ Auth: `POST /api/auth/register|login`, `GET /api/auth/me` (Bearer token). Admin 
 - `GET /api/notifications` — my pending confirmations (+ all pending/disputed with admin pin)
 - `POST /api/matches/:id/respond` `{action: "confirm"|"dispute"}`
 - `POST /api/matches/:id/admin-approve` — admin force-commit
-- `GET /api/leaderboard`, `GET /api/matches` — rankings + recent confirmed matches
+- `GET /api/leaderboard` — rankings
+- `GET /api/matches?player=<username|nickname>&since=<epoch ms>&until=<epoch ms>&limit=` — filtered match history (submission/commit time in `played_at`)
+- `GET /api/users?q=` — shared player search (nickname + username, includes elo)
+- `GET /api/admin/audit` — audit log (register/join/leave/votes/skips/mode changes/match lifecycle, latest 200)
+- `GET /api/admin/players` — all players with ratings and records
+- Match rule: every team needs **at least one registered player** — all-guest sides (incl. 1 registered vs 1 lone guest) are rejected 400
 
 ## Production
 
