@@ -1,0 +1,31 @@
+// NYIT Pool — Cloudflare Workers configuration
+// Docs: https://developers.cloudflare.com/workers/wrangler/configuration/
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "nyitpool",
+  "main": "src/index.js",
+  "compatibility_date": "2026-10-01",
+
+  // Static assets: the pool timer SPA lives in public/.
+  // Worker runs first ONLY for /api/* — every other path is served straight from assets.
+  "assets": {
+    "directory": "./public",
+    "binding": "ASSETS",
+    "not_found_handling": "single-page-application",
+    "run_worker_first": ["/api/*"]
+  },
+
+  // D1 database for the future Table Queue.
+  // After `wrangler d1 create nyitpool`, replace PLACEHOLDER_D1_ID with the printed database_id.
+  "d1_databases": [
+    {
+      "binding": "DB",
+      "database_name": "nyitpool",
+      "database_id": "PLACEHOLDER_D1_ID"
+    }
+  ],
+
+  "observability": {
+    "enabled": true
+  }
+}

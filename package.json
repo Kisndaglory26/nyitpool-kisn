@@ -1,0 +1,17 @@
+{
+  "name": "nyitpool",
+  "version": "1.0.0",
+  "private": true,
+  "description": "NYIT Pool — billiards timer portal + future table queue. Cloudflare Workers + Static Assets + D1.",
+  "type": "module",
+  "scripts": {
+    "dev": "wrangler dev",
+    "deploy": "wrangler deploy",
+    "db:create": "wrangler d1 create nyitpool",
+    "db:migrate:local": "wrangler d1 migrations apply nyitpool --local",
+    "db:migrate": "wrangler d1 migrations apply nyitpool --remote"
+  },
+  "devDependencies": {
+    "wrangler": "^4.0.0"
+  }
+}
