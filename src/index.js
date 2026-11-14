@@ -93,13 +93,15 @@ class HttpError extends Error {
   constructor(status, msg) { super(msg); this.status = status; }
 }
 
-/* ============================ queue hours (America/New_York) ============================ */
+/* ============================ queue mode: time windows + admin override ============================ */
+/* Base mode comes from ET time windows (9am–9pm open; duo-only noon–6pm; closed otherwise).
+   An admin (X-Admin-Pin) may override to 'open' | 'duo-only' | 'offline' — or 'auto' to
+   hand control back to the clock. Effective mode = override ?? window mode. */
 
 const TZ = 'America/New_York';
-const QUEUE_OPEN = 9 * 60;        // 9:00am
-const QUEUE_CLOSE = 21 * 60;      // 9:00pm — queue clears, no joins
-const SOLO_BLOCK_START = 12 * 60; // noon
-const SOLO_BLOCK_END = 18 * 60;   // 6:00pm — no solo/1v1 joins in this window
+const DEFAULT_SCHED = { open: '09:00', duo_start: '12:00', duo_end: '18:00', close: '21:00' };
+const SCHED_KEYS = ['open', 'duo_start', 'duo_end', 'close'];
+const hm = s => { const [h, m] = String(s).split(':').map(Number); return h * 60 + m; };
 
 function nyMinutes(env) {
   if (env.TEST_TIME_OVERRIDE && /^\d{1,2}:\d{2}$/.test(env.TEST_TIME_OVERRIDE)) {
@@ -113,21 +115,53 @@ function nyMinutes(env) {
   return h * 60 + m;
 }
 
-function queueState(env) {
+function windowMode(env, sched) {
   const t = nyMinutes(env);
-  if (t < QUEUE_OPEN || t >= QUEUE_CLOSE) return { open: false, solo: false };
-  return { open: true, solo: !(t >= SOLO_BLOCK_START && t < SOLO_BLOCK_END) };
+  if (t < hm(sched.open) || t >= hm(sched.close)) return 'offline';
+  if (hm(sched.duo_start) < hm(sched.duo_end) && t >= hm(sched.duo_start) && t < hm(sched.duo_end)) return 'duo-only';
+  return 'open';
 }
 
-/* outside hours the queue wipes itself on the first touch — no cron needed */
-async function clearIfClosed(db, env) {
-  const state = queueState(env);
-  if (state.open) return state;
+async function queueConfig(db) {
+  const { results } = await db.prepare(
+    "SELECT key, value FROM queue_settings WHERE key IN ('mode_override','sched_open','sched_close','sched_duo_start','sched_duo_end')"
+  ).all();
+  const map = Object.fromEntries(results.map(r => [r.key, r.value]));
+  const schedule = {};
+  for (const k of SCHED_KEYS) schedule[k] = map['sched_' + k] || DEFAULT_SCHED[k];
+  return { override: map.mode_override || null, schedule };
+}
+
+async function setOverride(db, mode /* null = auto */) {
+  if (mode == null) {
+    await db.prepare("DELETE FROM queue_settings WHERE key = 'mode_override'").run();
+    return;
+  }
+  await db.prepare(
+    "INSERT INTO queue_settings (key, value, updated_at) VALUES ('mode_override', ?, ?) " +
+    'ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at'
+  ).bind(mode, Date.now()).run();
+}
+
+async function setSchedule(db, sched) {
+  await db.batch(SCHED_KEYS.map(k =>
+    db.prepare(
+      `INSERT INTO queue_settings (key, value, updated_at) VALUES ('sched_${k}', ?, ?) ` +
+      'ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at'
+    ).bind(sched[k], Date.now())));
+}
+
+/* offline (window or override) wipes the live queue on touch */
+async function clearQueue(db) {
   await db.batch([
     db.prepare("UPDATE queue_parties SET status = 'skipped' WHERE status IN ('waiting','playing')"),
     db.prepare('DELETE FROM skip_votes'),
   ]);
-  return state;
+}
+
+async function effectiveMode(db, env) {
+  const { override, schedule } = await queueConfig(db);
+  return { mode: override || windowMode(env, schedule), override, schedule };
 }
 
 /* ============================ queue helpers ============================ */
@@ -272,6 +306,47 @@ async function handleApi(request, env, url) {
     return json({ user: { id: user.id, username: user.username, nickname: user.nickname } });
   }
 
+  /* ---------- account editor ---------- */
+  if (pathname === '/api/account' && method === 'PATCH') {
+    const user = await requireUser(request, env);
+    const body = await request.json().catch(() => null);
+
+    // username / PIN changes require the current PIN
+    if (body?.username != null || body?.new_pin != null) {
+      const hp = await pbkdf2(String(body?.current_pin || ''), user.pin_salt);
+      if (hp !== user.pin_hash) return bad('current PIN is wrong', 403);
+    }
+
+    const resp = { ok: true };
+    if (body?.nickname != null) {
+      const nick = String(body.nickname).trim();
+      if (!nick || nick.length > 24) return bad('nickname required (max 24 chars)');
+      await env.DB.prepare('UPDATE users SET nickname = ? WHERE id = ?').bind(nick, user.id).run();
+      resp.nickname = nick;
+    }
+    if (body?.username != null) {
+      const username = String(body.username).trim().toLowerCase();
+      if (!/^[a-z0-9_]{3,20}$/.test(username)) return bad('username: 3-20 chars, a-z 0-9 _');
+      try {
+        await env.DB.prepare('UPDATE users SET username = ? WHERE id = ?').bind(username, user.id).run();
+      } catch (e) {
+        if (String(e).includes('UNIQUE')) return bad('username already taken', 409);
+        throw e;
+      }
+      resp.username = username;
+    }
+    if (body?.new_pin != null) {
+      const np = String(body.new_pin);
+      if (!/^\d{4,6}$/.test(np)) return bad('new PIN must be 4-6 digits');
+      const salt = b64(crypto.getRandomValues(new Uint8Array(16)).buffer);
+      const hash = await pbkdf2(np, salt);
+      await env.DB.prepare('UPDATE users SET pin_hash = ?, pin_salt = ? WHERE id = ?')
+        .bind(hash, salt, user.id).run();
+      resp.pin_changed = true;
+    }
+    return json(resp);
+  }
+
   /* ---------- user search (teammate / match pickers) ---------- */
   if (pathname === '/api/users' && method === 'GET') {
     const q = '%' + (url.searchParams.get('q') || '').toLowerCase() + '%';
@@ -281,28 +356,69 @@ async function handleApi(request, env, url) {
     return json({ users: results });
   }
 
+  /* ---------- admin: queue mode override ---------- */
+  if (pathname === '/api/admin/queue-mode' && method === 'POST') {
+    if (!(await isAdmin(request, env))) return bad('admin pin required', 403);
+    const body = await request.json().catch(() => null);
+    const mode = body?.mode;
+    if (!['auto', 'open', 'duo-only', 'offline'].includes(mode)) {
+      return bad('mode must be auto, open, duo-only or offline');
+    }
+    await setOverride(env.DB, mode === 'auto' ? null : mode);
+    if (mode === 'offline') await clearQueue(env.DB);
+    const eff = await effectiveMode(env.DB, env);
+    return json({ ok: true, mode: eff.mode, override: eff.override, schedule: eff.schedule });
+  }
+
+  /* ---------- admin: schedule editor + queue wipe ---------- */
+  if (pathname === '/api/admin/queue-config' && method === 'POST') {
+    if (!(await isAdmin(request, env))) return bad('admin pin required', 403);
+    const body = await request.json().catch(() => null);
+    const sched = body?.schedule;
+    if (!sched || typeof sched !== 'object') return bad('schedule required');
+    for (const k of SCHED_KEYS) {
+      if (!/^\d{2}:\d{2}$/.test(String(sched[k] || ''))) return bad(`${k} must be HH:MM`);
+    }
+    if (hm(sched.open) >= hm(sched.close)) return bad('open must be before close');
+    if (hm(sched.duo_start) < hm(sched.duo_end)) { // active duo-only window must fit inside open hours
+      if (hm(sched.duo_start) < hm(sched.open) || hm(sched.duo_end) > hm(sched.close)) {
+        return bad('duo-only window must sit inside open hours');
+      }
+    } // duo_start === duo_end disables the duo-only restriction entirely
+    await setSchedule(env.DB, sched);
+    const eff = await effectiveMode(env.DB, env);
+    return json({ ok: true, mode: eff.mode, override: eff.override, schedule: eff.schedule });
+  }
+
+  if (pathname === '/api/admin/clear-queue' && method === 'POST') {
+    if (!(await isAdmin(request, env))) return bad('admin pin required', 403);
+    await clearQueue(env.DB);
+    return json({ ok: true, cleared: true });
+  }
+
   /* ---------- party queue ---------- */
   if (pathname === '/api/queue' && method === 'GET') {
-    const hours = await clearIfClosed(env.DB, env);
+    const eff = await effectiveMode(env.DB, env);
+    if (eff.mode === 'offline') await clearQueue(env.DB); // window closed or admin offline
     const { results } = await env.DB.prepare(
       PARTY_SELECT + ` WHERE p.status IN ('playing', 'waiting')
                        ORDER BY CASE p.status WHEN 'playing' THEN 0 ELSE 1 END, p.position`
     ).all();
-    return json({ parties: results.map(shapeParty), hours });
+    return json({ parties: results.map(shapeParty), mode: eff.mode, override: eff.override, schedule: eff.schedule });
   }
 
   if (pathname === '/api/queue/join' && method === 'POST') {
     const user = await requireUser(request, env);
-    const state = queueState(env);
-    if (!state.open) return bad('queue is closed — open 9am to 9pm ET', 403);
+    const eff = await effectiveMode(env.DB, env);
+    if (eff.mode === 'offline') return bad('queue is offline right now', 403);
     const body = await request.json().catch(() => null);
     const format = body?.format;
     if (!['solo', 'duo'].includes(format)) return bad('format must be solo or duo');
     if (format === 'solo' && (body?.p2_user_id || body?.p2_guest_name)) {
       return bad('solo parties have no second player');
     }
-    if (format === 'solo' && !state.solo) {
-      return bad('solo play is restricted — duo only from noon to 6pm ET', 403);
+    if (format === 'solo' && eff.mode === 'duo-only') {
+      return bad('queue is duo-only right now', 403);
     }
     let p2UserId = null, p2Guest = null;
     if (body?.p2_user_id) {
