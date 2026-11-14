@@ -19,6 +19,7 @@ const json = (data, status = 200) =>
   });
 const bad = (msg, status = 400) => json({ error: msg }, status);
 const enc = new TextEncoder();
+const clamp = (v, min, max) => Math.min(max, Math.max(min, v));
 
 /* ============================ auth / crypto ============================ */
 
@@ -199,6 +200,15 @@ function shapeParty(row) {
   };
 }
 
+/* ============================ audit log ============================ */
+
+async function audit(db, type, actorUserId, detail = '') {
+  try {
+    await db.prepare('INSERT INTO audit_log (at, type, actor_user_id, detail) VALUES (?, ?, ?, ?)')
+      .bind(Date.now(), type, actorUserId ?? null, String(detail).slice(0, 200)).run();
+  } catch { /* audit must never break the request */ }
+}
+
 /* ============================ match commit ============================ */
 
 async function commitMatch(db, pending) {
@@ -284,6 +294,7 @@ async function handleApi(request, env, url) {
       const { meta } = await env.DB.prepare(
         'INSERT INTO users (username, nickname, pin_hash, pin_salt, created_at) VALUES (?, ?, ?, ?, ?)'
       ).bind(username, nickname, pinHash, salt, Date.now()).run();
+      await audit(env.DB, 'register', meta.last_row_id, '@' + username);
       return json({ token: await issueToken(meta.last_row_id, env),
         user: { id: meta.last_row_id, username, nickname } }, 201);
     } catch (e) {
@@ -354,7 +365,7 @@ async function handleApi(request, env, url) {
   if (pathname === '/api/users' && method === 'GET') {
     const q = '%' + (url.searchParams.get('q') || '').toLowerCase() + '%';
     const { results } = await env.DB.prepare(
-      'SELECT id, username, nickname FROM users WHERE username LIKE ? OR nickname LIKE ? ORDER BY nickname LIMIT 10'
+      'SELECT id, username, nickname, ROUND(glicko_rating) AS elo FROM users WHERE username LIKE ? OR nickname LIKE ? ORDER BY nickname LIMIT 8'
     ).bind(q, q).all();
     return json({ users: results });
   }
@@ -369,6 +380,7 @@ async function handleApi(request, env, url) {
     }
     await setOverride(env.DB, mode === 'auto' ? null : mode);
     if (mode === 'offline') await clearQueue(env.DB);
+    await audit(env.DB, 'queue_mode', null, 'mode=' + mode);
     const eff = await effectiveMode(env.DB, env);
     return json({ ok: true, mode: eff.mode, override: eff.override, schedule: eff.schedule });
   }
@@ -389,6 +401,7 @@ async function handleApi(request, env, url) {
       }
     } // duo_start === duo_end disables the duo-only restriction entirely
     await setSchedule(env.DB, sched);
+    await audit(env.DB, 'queue_config', null, JSON.stringify(sched));
     const eff = await effectiveMode(env.DB, env);
     return json({ ok: true, mode: eff.mode, override: eff.override, schedule: eff.schedule });
   }
@@ -396,6 +409,7 @@ async function handleApi(request, env, url) {
   if (pathname === '/api/admin/clear-queue' && method === 'POST') {
     if (!(await isAdmin(request, env))) return bad('admin pin required', 403);
     await clearQueue(env.DB);
+    await audit(env.DB, 'queue_wipe', null, 'queue cleared');
     return json({ ok: true, cleared: true });
   }
 
@@ -445,6 +459,7 @@ async function handleApi(request, env, url) {
        VALUES (?, ?, ?, ?, ?, ?, ?)`
     ).bind(format, user.id, user.id, p2UserId, p2Guest, max.m + 1, Date.now()).run();
     await promoteNext(env.DB); // free table -> earliest party starts
+    await audit(env.DB, 'queue_join', user.id, 'party=' + meta.last_row_id + ' ' + format);
     return json({ ok: true, id: meta.last_row_id }, 201);
   }
 
@@ -477,6 +492,7 @@ async function handleApi(request, env, url) {
       await env.DB.prepare('UPDATE queue_parties SET p2_guest_name = NULL, p2_user_id = NULL WHERE id = ?')
         .bind(party.id).run();
     } else return bad('provide p2_user_id or p2_guest_name');
+    await audit(env.DB, 'teammate', user.id, 'party=' + party.id);
     return json({ ok: true });
   }
 
@@ -493,12 +509,14 @@ async function handleApi(request, env, url) {
       .bind(id, user.id, Date.now()).run();
     const { n } = await env.DB.prepare(
       'SELECT COUNT(*) AS n FROM skip_votes WHERE party_id = ?').bind(id).first();
+    await audit(env.DB, 'skip_vote', user.id, 'party=' + id + ' votes=' + n);
     if (n >= 3) {
       await env.DB.batch([
         env.DB.prepare("UPDATE queue_parties SET status = 'skipped' WHERE id = ?").bind(id),
         env.DB.prepare('DELETE FROM skip_votes WHERE party_id = ?').bind(id),
       ]);
       await promoteNext(env.DB); // refill the table if a playing party was skipped
+      await audit(env.DB, 'party_skipped', null, 'party=' + id + ' by 3 votes');
       return json({ skipped: true, votes: 3 });
     }
     return json({ skipped: false, votes: n });
@@ -518,6 +536,7 @@ async function handleApi(request, env, url) {
       env.DB.prepare('DELETE FROM skip_votes WHERE party_id = ?').bind(id),
     ]);
     await promoteNext(env.DB); // table seat freed — next party steps up
+    await audit(env.DB, 'queue_leave', user.id, 'party=' + id + (admin ? ' admin=1' : ''));
     return json({ ok: true });
   }
 
@@ -552,6 +571,9 @@ async function handleApi(request, env, url) {
       env.DB.prepare('SELECT id FROM users WHERE id = ?').bind(id)))).map(r => r.results[0]);
     if (found.some(u => !u)) return bad('unknown user in match');
 
+    const reg1 = t1.filter(s => s.user_id != null).length;
+    const reg2 = t2.filter(s => s.user_id != null).length;
+    if (!reg1 || !reg2) return bad('each team needs at least one registered player');
     const hasGuest = slots.some(s => s.user_id == null);
     const type = hasGuest ? 'casual' : matchType; // guests force casual
 
@@ -568,10 +590,12 @@ async function handleApi(request, env, url) {
         s.user_id != null ? null : String(s.guest_name).trim().slice(0, 24), confirmed);
     }));
 
+    await audit(env.DB, 'match_submit', user.id, 'pending=' + pid + ' ' + type + ' ' + format + ' winner=' + winnerTeam);
     const others = slots.filter(s => s.user_id != null && Number(s.user_id) !== user.id);
     if (!others.length) {
       const pending = await env.DB.prepare('SELECT * FROM pending_matches WHERE id = ?').bind(pid).first();
       const res = await commitMatch(env.DB, pending);
+      await audit(env.DB, 'match_commit', user.id, 'pending=' + pid + ' auto');
       return json({ committed: true, match_type: type, rating_delta: res.rating_delta }, 201);
     }
     return json({ committed: false, pending_id: pid, awaiting: others.length }, 201);
@@ -612,14 +636,17 @@ async function handleApi(request, env, url) {
     if (!me) return bad('you are not in this match', 403);
     if (action === 'dispute') {
       await env.DB.prepare("UPDATE pending_matches SET status = 'disputed' WHERE id = ?").bind(pending.id).run();
+      await audit(env.DB, 'match_dispute', user.id, 'pending=' + pending.id);
       return json({ ok: true, status: 'disputed' });
     }
     await env.DB.prepare('UPDATE pending_match_players SET confirmed = 1 WHERE id = ?').bind(me.id).run();
     const left = await env.DB.prepare(
       'SELECT COUNT(*) AS n FROM pending_match_players WHERE pending_match_id = ? AND confirmed = 0'
     ).bind(pending.id).first();
+    await audit(env.DB, 'match_confirm', user.id, 'pending=' + pending.id);
     if (left.n === 0) {
       const res = await commitMatch(env.DB, pending);
+      await audit(env.DB, 'match_commit', user.id, 'pending=' + pending.id + ' unanimous');
       return json({ committed: true, rating_delta: res.rating_delta });
     }
     return json({ committed: false, unconfirmed: left.n });
@@ -633,6 +660,7 @@ async function handleApi(request, env, url) {
     ).bind(Number(m[1])).first();
     if (!pending) return bad('not found', 404);
     const res = await commitMatch(env.DB, pending);
+    await audit(env.DB, 'admin_approve', null, 'pending=' + pending.id + ' force-committed');
     return json({ committed: true, rating_delta: res.rating_delta });
   }
 
@@ -647,8 +675,12 @@ async function handleApi(request, env, url) {
   }
 
   if (pathname === '/api/matches' && method === 'GET') {
-    const { results } = await env.DB.prepare(
-      `SELECT m.id, m.match_type, m.format, m.winner_team, m.rating_delta, m.played_at,
+    // filters: ?player=<username or nickname, exact> &since=<epoch ms> &until=<epoch ms> &limit=
+    const player = url.searchParams.get('player');
+    const since = Number(url.searchParams.get('since')) || 0;
+    const until = Number(url.searchParams.get('until')) || 0;
+    const limit = clamp(Number(url.searchParams.get('limit')) || 20, 1, 100);
+    let sql = `SELECT m.id, m.match_type, m.format, m.winner_team, m.rating_delta, m.played_at,
               (SELECT group_concat(
                  CASE WHEN mp.user_id IS NOT NULL
                       THEN (SELECT nickname FROM users u WHERE u.id = mp.user_id)
@@ -659,9 +691,38 @@ async function handleApi(request, env, url) {
                       THEN (SELECT nickname FROM users u WHERE u.id = mp.user_id)
                       ELSE 'Guest: ' || mp.guest_name END, ' | ')
                FROM match_players mp WHERE mp.match_id = m.id AND mp.team = 2) AS team2
-       FROM matches m ORDER BY m.played_at DESC LIMIT 20`
-    ).all();
+       FROM matches m WHERE m.played_at >= ?`;
+    const params = [since];
+    if (until) { sql += ' AND m.played_at <= ?'; params.push(until); }
+    if (player) {
+      sql += ` AND EXISTS (SELECT 1 FROM match_players mp JOIN users u ON u.id = mp.user_id
+                WHERE mp.match_id = m.id AND (LOWER(u.username) = LOWER(?) OR LOWER(u.nickname) = LOWER(?)))`;
+      params.push(player, player);
+    }
+    sql += ' ORDER BY m.played_at DESC LIMIT ?';
+    params.push(limit);
+    const { results } = await env.DB.prepare(sql).bind(...params).all();
     return json({ matches: results });
+  }
+
+  if (pathname === '/api/admin/audit' && method === 'GET') {
+    if (!(await isAdmin(request, env))) return bad('admin pin required', 403);
+    const { results } = await env.DB.prepare(
+      `SELECT a.id, a.at, a.type, a.detail, u.nickname AS actor
+       FROM audit_log a LEFT JOIN users u ON u.id = a.actor_user_id
+       ORDER BY a.id DESC LIMIT 200`
+    ).all();
+    return json({ audit: results });
+  }
+
+  if (pathname === '/api/admin/players' && method === 'GET') {
+    if (!(await isAdmin(request, env))) return bad('admin pin required', 403);
+    const { results } = await env.DB.prepare(
+      `SELECT id, username, nickname, glicko_rating, glicko_rd,
+              ranked_wins, ranked_losses, casual_wins, casual_losses, created_at, last_played_at
+       FROM users ORDER BY id LIMIT 200`
+    ).all();
+    return json({ players: results });
   }
 
   return bad('not found', 404);

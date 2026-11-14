@@ -127,7 +127,37 @@
     font-size:.8rem;font-weight:700;color:var(--t2);
     border:1px solid var(--t2);border-radius:999px;padding:4px 12px;
   }
+  .hub-adminchip{
+    font-size:.62rem;font-weight:900;letter-spacing:.16em;color:var(--warn);
+    border:1px solid var(--warn);border-radius:999px;padding:4px 10px;background:transparent;
+  }
   .hub-bell{position:relative}
+  .upick{
+    position:absolute;left:0;right:0;top:calc(100% + 4px);z-index:30;
+    background:var(--panel);border:1px solid var(--line);border-radius:12px;
+    display:flex;flex-direction:column;overflow:hidden;box-shadow:0 10px 30px -10px #000;
+  }
+  .upick button{
+    display:flex;justify-content:space-between;gap:10px;align-items:baseline;
+    padding:9px 12px;font-size:.9rem;text-align:left;border-bottom:1px solid var(--line);
+  }
+  .upick button:last-child{border-bottom:none}
+  .upick button:hover{background:var(--panel2)}
+  .upick .u-nick{font-weight:700}
+  .upick .u-meta{color:var(--muted);font-size:.75rem}
+  .upick .u-meta .elo{color:var(--accent);font-weight:800}
+  .pick-slot{position:relative}
+  .hist-filters{display:flex;gap:8px;flex-wrap:wrap;align-items:center}
+  .hist-filters .name-input{flex:1 1 150px;position:relative}
+  .hist-wrap{overflow-x:auto;border:1px solid var(--line);border-radius:12px;background:var(--panel)}
+  .hist-wrap .q-table th{position:static}
+  .adm-wrap{
+    flex:1;width:100%;min-height:100dvh;display:flex;flex-direction:column;gap:12px;
+    padding:14px clamp(14px,4vw,24px) calc(14px + env(safe-area-inset-bottom));
+    max-width:860px;margin:0 auto;
+  }
+  .adm-wrap .sched-grid{max-width:480px}
+  #adm-pending{display:flex;flex-direction:column;gap:8px}
   .bell-n{
     position:absolute;top:-7px;right:-7px;min-width:18px;height:18px;border-radius:99px;
     background:var(--danger);color:#fff;font-size:.68rem;font-weight:800;
@@ -590,7 +620,8 @@
         <span class="hub-title">Table Queue</span>
         <span class="spacer"></span>
         <span id="hub-user" class="hub-user" hidden></span>
-        <button id="hub-bell" class="btn-ghost hub-bell" type="button" hidden>🔔<span id="hub-bell-n" class="bell-n" hidden></span></button>
+        <button id="hub-admin-chip" class="hub-adminchip" type="button" hidden>ADMIN</button>
+        <button id="hub-bell" class="btn-ghost hub-bell" type="button" hidden title="Account & notifications">👤<span id="hub-bell-n" class="bell-n" hidden></span></button>
         <button id="hub-admin-btn" class="btn-ghost" type="button" title="Admin unlock">🔒</button>
       </div>
       <div id="queue-hours" class="q-hours" hidden></div>
@@ -625,11 +656,10 @@
               <button type="button" data-v="solo" class="on">Solo</button>
               <button type="button" data-v="duo">Duo</button>
             </div>
-            <input id="join-mate" class="name-input" list="users-dl" placeholder="Teammate (username)" maxlength="20">
+            <input id="join-mate" class="name-input" placeholder="Teammate (username)" maxlength="20">
             <input id="join-guest" class="name-input" placeholder="or guest name" maxlength="24">
             <button class="btn-primary" type="submit">Join</button>
           </form>
-          <datalist id="users-dl"></datalist>
 
           <div id="hub-playing" hidden></div>
           <div id="hub-list"></div>
@@ -647,9 +677,10 @@
               <button type="button" data-v="2v1">2v1</button>
             </div>
             <div class="log-teams">
-              <div class="log-team" id="lt1"><span class="lbl">TEAM 1</span><div class="slots"></div></div>
-              <div class="log-team" id="lt2"><span class="lbl">TEAM 2</span><div class="slots"></div></div>
+              <div class="log-team" id="lt1"><span class="lbl">TEAM 1 — you</span><div class="slots"></div></div>
+              <div class="log-team" id="lt2"><span class="lbl">TEAM 2 — opponents</span><div class="slots"></div></div>
             </div>
+            <p class="fine">Type to search players — pick from the list. Unmatched names count as guests; each team needs at least one registered player.</p>
             <div class="log-row seg" id="log-winner">
               <button type="button" data-v="1" class="on">Team 1 won</button>
               <button type="button" data-v="2">Team 2 won</button>
@@ -657,12 +688,22 @@
             <button class="btn-primary big" type="submit">Submit match</button>
             <p id="log-msg" class="fine"></p>
           </form>
+
+          <h4 class="board-h">Match history</h4>
+          <div class="hist-filters">
+            <input id="hist-player" class="name-input" placeholder="Filter by player" maxlength="24" autocomplete="off">
+            <div class="seg" id="hist-time">
+              <button type="button" data-v="0" class="on">All</button>
+              <button type="button" data-v="1">Today</button>
+              <button type="button" data-v="7">7d</button>
+              <button type="button" data-v="30">30d</button>
+            </div>
+          </div>
+          <div id="hist-wrap" class="hist-wrap"><table class="q-table" id="hist-table"></table></div>
         </div>
 
         <div id="tab-board" class="hub-tab" hidden>
           <div id="board-list"></div>
-          <h4 class="board-h">Recent matches</h4>
-          <div id="board-feed"></div>
         </div>
       </div>
 
@@ -687,40 +728,59 @@
               <button class="btn-ghost" data-act="pin" type="button">Save</button>
             </div>
             <p id="acct-msg" class="fine"></p>
-            <button id="a-signout" class="btn-ghost" type="button">Sign out</button>
+            <div class="acct-row">
+              <button id="a-signout" class="btn-ghost" type="button">Sign out</button>
+              <button id="a-admin-page" class="btn-primary" type="button" hidden>Admin page →</button>
+            </div>
           </div>
 
           <h4>Pending confirmations</h4>
           <div id="drawer-mine"></div>
-
-          <div id="drawer-admin" hidden>
-            <h4>Queue status</h4>
-            <div class="mode-grid" id="admin-modes">
-              <button class="btn-ghost" data-m="auto" type="button">🕰 Auto<br><span class="fine">time windows</span></button>
-              <button class="btn-ghost" data-m="open" type="button">🟢 Open<br><span class="fine">solo + duo</span></button>
-              <button class="btn-ghost" data-m="duo-only" type="button">🕒 Duo only<br><span class="fine">no solos</span></button>
-              <button class="btn-ghost" data-m="offline" type="button">⛔ Offline<br><span class="fine">clears queue</span></button>
-            </div>
-
-            <h4>Queue hours (ET)</h4>
-            <div class="sched-grid">
-              <label>Open<input id="s-open" class="name-input" type="time"></label>
-              <label>Duo-only from<input id="s-duo_start" class="name-input" type="time"></label>
-              <label>Duo-only until<input id="s-duo_end" class="name-input" type="time"></label>
-              <label>Close<input id="s-close" class="name-input" type="time"></label>
-            </div>
-            <p class="fine">Duo window from = until disables the solo restriction.</p>
-            <div class="acct-row">
-              <button id="s-save" class="btn-primary" type="button">Save hours</button>
-              <button id="s-wipe" class="btn-ghost armed" type="button">Wipe queue now</button>
-            </div>
-            <p id="sched-msg" class="fine"></p>
-
-            <h4>Admin — all pending</h4>
-            <div id="drawer-admin-list"></div>
-          </div>
         </div>
       </div>
+    </div>
+  </section>
+
+  <!-- ============ Screen 1d: admin page ============ -->
+  <section id="screen-adminpage" class="screen">
+    <div class="adm-wrap">
+      <div class="hub-head">
+        <button id="adm-back" class="btn-ghost" type="button">← Back</button>
+        <span class="hub-title">Admin</span>
+        <span class="badge">PIN UNLOCKED</span>
+      </div>
+
+      <h4 class="board-h">Queue status</h4>
+      <div class="mode-grid" id="admin-modes">
+        <button class="btn-ghost" data-m="auto" type="button">🕰 Auto<br><span class="fine">time windows</span></button>
+        <button class="btn-ghost" data-m="open" type="button">🟢 Open<br><span class="fine">solo + duo</span></button>
+        <button class="btn-ghost" data-m="duo-only" type="button">🕒 Duo only<br><span class="fine">no solos</span></button>
+        <button class="btn-ghost" data-m="offline" type="button">⛔ Offline<br><span class="fine">clears queue</span></button>
+      </div>
+      <h4 class="board-h">Queue hours (ET)</h4>
+      <div class="sched-grid">
+        <label>Open<input id="s-open" class="name-input" type="time"></label>
+        <label>Duo-only from<input id="s-duo_start" class="name-input" type="time"></label>
+        <label>Duo-only until<input id="s-duo_end" class="name-input" type="time"></label>
+        <label>Close<input id="s-close" class="name-input" type="time"></label>
+      </div>
+      <p class="fine">Duo window from = until disables the solo restriction.</p>
+      <div class="acct-row">
+        <button id="s-save" class="btn-primary" type="button">Save hours</button>
+        <button id="s-wipe" class="btn-ghost armed" type="button">Wipe queue now</button>
+      </div>
+      <p id="sched-msg" class="fine"></p>
+
+      <h4 class="board-h">Pending &amp; disputed matches</h4>
+      <div id="adm-pending"></div>
+
+      <h4 class="board-h">Players</h4>
+      <div class="hist-wrap"><table class="q-table" id="adm-players"></table></div>
+
+      <h4 class="board-h">Audit log</h4>
+      <div class="hist-wrap"><table class="q-table" id="adm-audit"></table></div>
+    </div>
+  </section>
     </div>
   </section>
 
@@ -918,6 +978,7 @@ function showScreen(name) {
   }
   if (name === 'queue') Hub.start();
   else if (from === 'queue') Hub.stop();
+  if (name === 'adminpage') Hub.adminPage();
   app.screen = name;
   $$('.screen').forEach(s => s.classList.toggle('active', s.id === 'screen-' + name));
   if (name === 'config') renderConfig();
@@ -1011,6 +1072,7 @@ const Hub = (() => {
     $('#hub-user').hidden = false;
     $('#hub-user').textContent = me.nickname;
     $('#hub-bell').hidden = false;
+    buildLogSlots();
     refreshAll();
   }
 
@@ -1061,18 +1123,24 @@ const Hub = (() => {
   }));
 
   $('#a-signout').addEventListener('click', () => {
-    token = null; me = null;
+    token = null; me = null; adminPin = null;
     localStorage.removeItem(TOKEN_KEY);
     $('#hub-drawer').hidden = true;
     $('#hub-gate').hidden = false;
     $('#hub-main').hidden = true;
     $('#hub-user').hidden = true;
     $('#hub-bell').hidden = true;
+    $('#hub-admin-chip').hidden = true;
+    $('#hub-admin-btn').textContent = '🔒';
   });
+  function setAdminUI(unlocked) {
+    $('#hub-admin-btn').textContent = unlocked ? '🔓' : '🔒';
+    $('#hub-admin-chip').hidden = !unlocked;
+  }
   $('#hub-admin-btn').addEventListener('click', async () => {
     if (adminPin) { // tap again to lock
       adminPin = null;
-      $('#hub-admin-btn').textContent = '🔒';
+      setAdminUI(false);
       if (!$('#hub-drawer').hidden) refreshDrawer();
       return;
     }
@@ -1086,13 +1154,17 @@ const Hub = (() => {
         alert('Wrong admin PIN.');
         return;
       }
-      $('#hub-admin-btn').textContent = '🔓';
+      setAdminUI(true);
       if (!$('#hub-drawer').hidden) refreshDrawer();
     } catch (ex) {
       adminPin = null;
       alert(ex.message);
     }
   });
+
+  $('#hub-admin-chip').addEventListener('click', () => showScreen('adminpage'));
+  $('#a-admin-page').addEventListener('click', () => { $('#hub-drawer').hidden = true; showScreen('adminpage'); });
+  $('#adm-back').addEventListener('click', () => showScreen('queue'));
 
   /* ---------- tabs ---------- */
   $$('.hub-tabs button').forEach(b => b.addEventListener('click', () => {
@@ -1101,6 +1173,7 @@ const Hub = (() => {
     $('#tab-queue').hidden = tab !== 'queue';
     $('#tab-log').hidden = tab !== 'log';
     $('#tab-board').hidden = tab !== 'board';
+    if (tab === 'log') buildLogSlots(); // you-slot needs the signed-in user
     refreshAll();
   }));
 
@@ -1116,25 +1189,56 @@ const Hub = (() => {
   }
   ['#join-format', '#log-type', '#log-format', '#log-winner'].forEach(s => wireSeg($(s)));
 
-  /* ---------- user search datalist ---------- */
-  async function searchUsers(q) {
-    if (!q) return [];
-    const { users } = await api('/users?q=' + encodeURIComponent(q));
-    users.forEach(u => userCache.set(u.username, u.id));
-    $('#users-dl').innerHTML = '';
-    users.forEach(u => {
-      const o = el('option');
-      o.value = u.username;
-      o.textContent = u.nickname;
-      $('#users-dl').append(o);
+  /* ---------- shared player search (autocomplete picker) ----------
+     Used by: queue teammate, match form slots, history filter.
+     input.dataset.uid is set while the text matches a picked user; cleared on edit. */
+  function mkPicker(input, { onPick } = {}) {
+    input.setAttribute('autocomplete', 'off');
+    const wrap = input.parentElement.classList.contains('pick-slot')
+      ? input.parentElement
+      : (() => { const w = el('div', 'pick-slot'); input.replaceWith(w); w.append(input); return w; })();
+    let box = null, t = 0;
+    const close = () => { if (box) { box.remove(); box = null; } };
+    const open = users => {
+      close();
+      if (!users.length) return;
+      box = el('div', 'upick');
+      users.forEach(u => {
+        const b = el('button', null);
+        b.type = 'button';
+        const nick = el('span', 'u-nick', u.nickname + ' ');
+        const meta = el('span', 'u-meta');
+        meta.append(document.createTextNode('@' + u.username + ' · '));
+        meta.append(el('span', 'elo', String(u.elo ?? '—')));
+        b.append(nick, meta);
+        b.addEventListener('mousedown', e => { // mousedown beats input blur
+          e.preventDefault();
+          input.value = u.username;
+          input.dataset.uid = u.id;
+          input.dataset.name = u.nickname;
+          userCache.set(u.username, u.id);
+          close();
+          if (onPick) onPick(u);
+        });
+        box.append(b);
+      });
+      wrap.append(box);
+    };
+    input.addEventListener('input', () => {
+      delete input.dataset.uid;
+      clearTimeout(t);
+      const q = input.value.trim();
+      if (!q) return close();
+      t = setTimeout(async () => {
+        try { open((await api('/users?q=' + encodeURIComponent(q))).users); }
+        catch { close(); }
+      }, 220);
     });
-    return users;
+    input.addEventListener('blur', () => setTimeout(close, 120));
+    return input;
   }
-  let searchT = 0;
-  $('#join-mate').addEventListener('input', () => {
-    clearTimeout(searchT);
-    searchT = setTimeout(() => searchUsers($('#join-mate').value.trim().toLowerCase()), 250);
-  });
+
+  mkPicker($('#join-mate'));
 
   /* ---------- tab 1: live queue ---------- */
   let parties = [];
@@ -1159,7 +1263,7 @@ const Hub = (() => {
       const r = await api('/admin/queue-mode', { method: 'POST', body: { mode } });
       qMode = { mode: r.mode, override: r.override, schedule: r.schedule || qMode.schedule };
       renderQueue();
-      refreshDrawer();
+      if (app.screen === 'adminpage') AdminPage.refresh();
     } catch (ex) { alert(ex.message); }
   }
 
@@ -1325,20 +1429,22 @@ const Hub = (() => {
 
   $('#hub-join').addEventListener('submit', async e => {
     e.preventDefault();
-    const mate = $('#join-mate').value.trim().toLowerCase();
+    const mateEl = $('#join-mate');
+    const mate = mateEl.value.trim();
     const guest = $('#join-guest').value.trim();
     const body = { format: segVal($('#join-format')) };
-    if (mate && userCache.has(mate)) body.p2_user_id = userCache.get(mate);
-    else if (mate) return alert('Teammate not found — pick a username from the list.');
-    else if (guest) body.p2_guest_name = guest;
+    if (mate) {
+      if (!mateEl.dataset.uid) return alert('Teammate not found — pick one from the suggestions.');
+      body.p2_user_id = Number(mateEl.dataset.uid);
+    } else if (guest) body.p2_guest_name = guest;
     try {
       await api('/queue/join', { method: 'POST', body });
-      $('#join-mate').value = ''; $('#join-guest').value = '';
+      mateEl.value = ''; delete mateEl.dataset.uid; $('#join-guest').value = '';
       refreshAll();
     } catch (ex) { alert(ex.message); }
   });
 
-  /* ---------- tab 2: log match ---------- */
+  /* ---------- tab 2: Matches — log form (you pre-filled) + history ---------- */
   function buildLogSlots() {
     const sizes = { '1v1': [1, 1], '2v2': [2, 2], '2v1': [2, 1] };
     const [n1, n2] = sizes[segVal($('#log-format'))];
@@ -1346,18 +1452,21 @@ const Hub = (() => {
       const box = $('.slots', $(sel));
       box.innerHTML = '';
       for (let i = 0; i < n; i++) {
+        if (i === 0 && sel === '#lt1') { // you — locked in Team 1
+          const inp = document.createElement('input');
+          inp.className = 'name-input';
+          inp.value = me ? me.nickname : '';
+          inp.disabled = true;
+          inp.dataset.uid = me ? me.id : '';
+          box.append(inp);
+          continue;
+        }
         const inp = document.createElement('input');
         inp.className = 'name-input';
         inp.maxLength = 24;
-        inp.placeholder = i === 0 && sel === '#lt1' ? 'you' : 'username or name';
-        if (i === 0 && sel === '#lt1') inp.value = me ? me.username : '';
-        inp.autocomplete = 'off';
-        inp.addEventListener('input', () => {
-          clearTimeout(searchT);
-          const v = inp.value.trim().toLowerCase();
-          if (v) searchT = setTimeout(() => searchUsers(v), 250);
-        });
+        inp.placeholder = 'search player / guest name';
         box.append(inp);
+        mkPicker(inp);
       }
     });
   }
@@ -1370,15 +1479,17 @@ const Hub = (() => {
     for (const sel of ['#lt1', '#lt2']) {
       const team = sel === '#lt1' ? 1 : 2;
       for (const inp of $$('.slots input', $(sel))) {
-        const v = inp.value.trim().toLowerCase();
-        if (!v) return msg.textContent = '⚠️ Fill every player slot (username or name).';
-        if (userCache.has(v)) teams[team].push({ user_id: userCache.get(v) });
-        else if (v === (me ? me.username : null)) return msg.textContent = '⚠️ Sign in first.';
-        else teams[team].push({ guest_name: inp.value.trim() });
+        const v = inp.value.trim();
+        if (!v) { msg.style.color = 'var(--danger)'; msg.textContent = '⚠️ Fill every player slot.'; return; }
+        if (inp.dataset.uid) teams[team].push({ user_id: Number(inp.dataset.uid) });
+        else teams[team].push({ guest_name: v });
       }
     }
-    const mine = [...teams[1], ...teams[2]].some(s => s.user_id === me.id);
-    if (!mine) teams[1][0] = { user_id: me.id }; // first slot defaults to you
+    if (!teams[2].some(s => s.user_id != null)) {
+      msg.style.color = 'var(--danger)';
+      msg.textContent = '⚠️ Opposing team needs at least one registered player — search and pick one.';
+      return;
+    }
     try {
       const r = await api('/matches/submit', {
         method: 'POST',
@@ -1391,11 +1502,68 @@ const Hub = (() => {
       });
       msg.style.color = 'var(--text)';
       msg.textContent = r.committed
-        ? `✅ Committed${r.rating_delta != null ? ' (Δ ${r.rating_delta})' : ''}.`
+        ? `✅ Committed${r.rating_delta != null ? ' (Δ ' + r.rating_delta + ')' : ''}.`
         : `⏳ Submitted — waiting on ${r.awaiting} confirmation(s).`;
       buildLogSlots();
+      refreshHistory();
     } catch (ex) { msg.style.color = 'var(--danger)'; msg.textContent = ex.message; }
   });
+
+  /* ---------- match history (filters + horizontal scroll) ---------- */
+  const fmtWhen = ms => {
+    const d = new Date(ms);
+    const today = new Date();
+    const sameDay = d.toDateString() === today.toDateString();
+    const hm = d.toTimeString().slice(0, 5);
+    return sameDay ? 'Today ' + hm : (d.getMonth() + 1) + '/' + d.getDate() + ' ' + hm;
+  };
+
+  async function refreshHistory() {
+    if (tab !== 'log') return;
+    const player = $('#hist-player').dataset.uid
+      ? '@' + $('#hist-player').value.trim()
+      : $('#hist-player').value.trim();
+    const days = Number(segVal($('#hist-time')));
+    const qs = new URLSearchParams();
+    if (player) qs.set('player', player.replace(/^@/, ''));
+    if (days) qs.set('since', String(Date.now() - days * 86400000));
+    try {
+      const rows = (await api('/matches' + (qs.toString() ? '?' + qs : ''))).matches;
+      const t = $('#hist-table');
+      t.innerHTML = '';
+      const hr = el('tr');
+      ['When', 'Type', 'Fmt', 'Team 1', 'Team 2', 'Winner', 'Δ'].forEach(h => hr.append(el('th', null, h)));
+      const thead = el('thead'); thead.append(hr);
+      const tbody = el('tbody');
+      if (!rows.length) {
+        const tr = el('tr');
+        const td = el('td', null, 'No matches yet.');
+        td.colSpan = 7;
+        tr.append(td); tbody.append(tr);
+      }
+      rows.forEach(m => {
+        const tr = el('tr');
+        tr.append(el('td', null, fmtWhen(m.played_at)));
+        tr.append(el('td', null, m.match_type));
+        tr.append(el('td', null, m.format));
+        const t1 = el('td', null, m.team1 || '?');
+        const t2 = el('td', null, m.team2 || '?');
+        (m.winner_team === 1 ? t1 : t2).style.color = 'var(--ok)';
+        tr.append(t1, t2);
+        tr.append(el('td', null, 'Team ' + m.winner_team));
+        tr.append(el('td', null, m.rating_delta != null ? (m.rating_delta > 0 ? '+' : '') + m.rating_delta : '—'));
+        tbody.append(tr);
+      });
+      t.append(thead, tbody);
+    } catch { /* keep old */ }
+  }
+
+  mkPicker($('#hist-player'), { onPick: () => refreshHistory() });
+  $('#hist-player').addEventListener('change', () => refreshHistory());
+  $$('#hist-time button').forEach(b => b.addEventListener('click', () => {
+    $$('#hist-time button').forEach(x => x.classList.toggle('on', x === b));
+    refreshHistory();
+  }));
 
   /* ---------- tab 3: leaderboard ---------- */
   const tier = (r, rd, games) =>
@@ -1423,26 +1591,16 @@ const Hub = (() => {
           `${Math.round(u.glicko_rating)} · R ${u.ranked_wins}–${u.ranked_losses} · C ${u.casual_wins}–${u.casual_losses}`));
         list.append(row);
       });
-      const feed = $('#board-feed');
-      feed.innerHTML = '';
-      (await api('/matches')).matches.forEach(mm => {
-        const row = el('div', 'feed-row');
-        const t1 = el('b', null, mm.team1 || '?');
-        const t2 = el('b', null, mm.team2 || '?');
-        if (mm.winner_team === 1) t1.classList.add('won'); else t2.classList.add('won');
-        row.append(t1, document.createTextNode(' vs '), t2);
-        row.append(el('span', 'fmt', '  ' + mm.match_type.toUpperCase()));
-        feed.append(row);
-      });
     } catch { /* keep old render */ }
   }
 
-  /* ---------- drawer: confirmations & admin ---------- */
+  /* ---------- drawer: account + my confirmations ---------- */
   async function refreshDrawer() {
     const mineBox = $('#drawer-mine');
     mineBox.innerHTML = '';
+    $('#a-admin-page').hidden = !adminPin;
     try {
-      const { notifications, admin, admin_unlocked } = await api('/notifications');
+      const { notifications } = await api('/notifications');
       setBell(notifications.length);
       if (!notifications.length) mineBox.append(el('div', 'fine', 'Nothing waiting on you. 🎉'));
       notifications.forEach(n => {
@@ -1462,36 +1620,6 @@ const Hub = (() => {
         card.append(btns);
         mineBox.append(card);
       });
-      const adminBox = $('#drawer-admin');
-      adminBox.hidden = !admin_unlocked;
-      // prefill schedule editor with the live config
-      ['open', 'duo_start', 'duo_end', 'close'].forEach(k => {
-        const inp = $('#s-' + k);
-        if (inp && qMode.schedule[k]) inp.value = qMode.schedule[k];
-      });
-      // reflect current queue mode on the admin switcher
-      $$('#admin-modes button').forEach(b => {
-        const active = b.dataset.m === (qMode.override || 'auto')
-          || (b.dataset.m !== 'auto' && !qMode.override && qMode.mode === b.dataset.m);
-        b.classList.toggle('on', active);
-      });
-      const adminList = $('#drawer-admin-list');
-      adminList.innerHTML = '';
-      if (admin_unlocked && admin) {
-        if (!admin.length) adminList.append(el('div', 'fine', 'No pending matches.'));
-        admin.forEach(n => {
-          const card = el('div', 'pend');
-          card.append(el('div', null,
-            `#${n.id} ${n.match_type} ${n.format} — Team ${n.winner_team} won · ${n.unconfirmed} unconfirmed${n.status === 'disputed' ? ' · DISPUTED' : ''}`));
-          const btns = el('div', 'btns');
-          btns.append(actBtn('⚡ Force approve', async () => {
-            await api('/matches/' + n.id + '/admin-approve', { method: 'POST' });
-            refreshAll(); refreshDrawer();
-          }));
-          card.append(btns);
-          adminList.append(card);
-        });
-      }
     } catch { mineBox.append(el('div', 'fine', 'Sign in to see confirmations.')); }
   }
 
@@ -1515,6 +1643,7 @@ const Hub = (() => {
     try {
       await api('/admin/clear-queue', { method: 'POST' });
       refreshAll();
+      AdminPage.refresh();
       $('#sched-msg').textContent = '✓ Queue wiped';
     } catch (ex) { alert(ex.message); }
   });
@@ -1525,11 +1654,95 @@ const Hub = (() => {
     b.textContent = n > 9 ? '9+' : n;
   }
 
+  /* ---------- admin page (queue controls, pending, players, audit) ---------- */
+  const AdminPage = (() => {
+    function fillTable(tableSel, headers, rows) {
+      const t = $(tableSel);
+      t.innerHTML = '';
+      const thead = el('thead');
+      const hr = el('tr');
+      headers.forEach(h => hr.append(el('th', null, h)));
+      thead.append(hr);
+      const tbody = el('tbody');
+      if (!rows.length) {
+        const tr = el('tr');
+        const td = el('td', null, 'Nothing yet.');
+        td.colSpan = headers.length;
+        tr.append(td);
+        tbody.append(tr);
+      }
+      rows.forEach(cells => {
+        const tr = el('tr');
+        cells.forEach(c => tr.append(el('td', null, c)));
+        tbody.append(tr);
+      });
+      t.append(thead, tbody);
+    }
+
+    async function refresh() {
+      if (!adminPin) return;
+      // mode switcher + schedule prefill from live config
+      await refreshQueue();
+      ['open', 'duo_start', 'duo_end', 'close'].forEach(k => {
+        const inp = $('#s-' + k);
+        if (inp && qMode.schedule[k]) inp.value = qMode.schedule[k];
+      });
+      $$('#admin-modes button').forEach(b => {
+        const active = b.dataset.m === (qMode.override || 'auto')
+          || (b.dataset.m !== 'auto' && !qMode.override && qMode.mode === b.dataset.m);
+        b.classList.toggle('on', active);
+      });
+
+      // pending & disputed
+      const pend = $('#adm-pending');
+      pend.innerHTML = '';
+      try {
+        const { admin } = await api('/notifications');
+        if (!admin || !admin.length) pend.append(el('div', 'fine', 'No pending matches.'));
+        (admin || []).forEach(n => {
+          const card = el('div', 'pend');
+          card.append(el('div', null,
+            `#${n.id} ${n.match_type} ${n.format} — Team ${n.winner_team} won · ${n.unconfirmed} unconfirmed${n.status === 'disputed' ? ' · DISPUTED' : ''}`));
+          const btns = el('div', 'btns');
+          btns.append(actBtn('⚡ Force approve', async () => {
+            await api('/matches/' + n.id + '/admin-approve', { method: 'POST' });
+            refreshAll(); refresh();
+          }));
+          card.append(btns);
+          pend.append(card);
+        });
+      } catch { pend.append(el('div', 'fine', 'Admin pin required.')); }
+
+      try {
+        const players = (await api('/admin/players')).players;
+        fillTable('#adm-players',
+          ['Player', 'Elo', 'Ranked', 'Casual', 'Joined'],
+          players.map(u => [
+            u.nickname + ' @' + u.username,
+            Math.round(u.glicko_rating),
+            u.ranked_wins + '–' + u.ranked_losses,
+            u.casual_wins + '–' + u.casual_losses,
+            fmtWhen(u.created_at),
+          ]));
+      } catch { /* pin */ }
+
+      try {
+        const log = (await api('/admin/audit')).audit;
+        fillTable('#adm-audit',
+          ['When', 'Event', 'Actor', 'Detail'],
+          log.map(a => [fmtWhen(a.at), a.type, a.actor || 'system', a.detail]));
+      } catch { /* pin */ }
+    }
+
+    return { refresh };
+  })();
+
   /* ---------- lifecycle ---------- */
   async function refreshAll() {
     if (!me) return;
     await refreshQueue();
     if (tab === 'board') await refreshBoard();
+    if (tab === 'log') await refreshHistory();
     try {
       const { notifications } = await api('/notifications');
       setBell(notifications.length);
@@ -1546,7 +1759,7 @@ const Hub = (() => {
   function stop() { clearInterval(pollT); pollT = 0; }
 
   buildLogSlots();
-  return { start, stop };
+  return { start, stop, adminPage: () => AdminPage.refresh() };
 })();
 
 /* ==================== screen 2: config / handicaps ==================== */
