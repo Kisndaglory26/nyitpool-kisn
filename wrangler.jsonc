@@ -15,13 +15,12 @@
     "run_worker_first": ["/api/*"]
   },
 
-  // D1 database for the future Table Queue.
-  // After `wrangler d1 create nyitpool`, replace PLACEHOLDER_D1_ID with the printed database_id.
+  // D1 database for the Table Queue.
   "d1_databases": [
     {
       "binding": "DB",
       "database_name": "nyitpool",
-      "database_id": "PLACEHOLDER_D1_ID"
+      "database_id": "ab083be2-c31b-4d59-b6b7-dd518212eb29"
     }
   ],
 
