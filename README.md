@@ -49,6 +49,10 @@ Connect the repo to Cloudflare **Workers Builds** so every `git push` to `main` 
 - `GET /api/queue` — list queue entries (D1).
 - `POST /api/queue` `{ "team_name": "...", "players": "A · B" }` — join the queue.
 
+## Production
+
+Live at **https://app.nyitpool.workers.dev** — every merge to `main` auto-deploys via Cloudflare Workers Builds.
+
 ## Timer controls
 
 `SPACE` pass turn / start · `ENTER` reset shot clock (or refund turn time in game mode) · `P` pause — all work while paused too. Web Audio cues + Screen Wake Lock included.
