@@ -1,71 +1,564 @@
 /**
- * NYIT Pool — Cloudflare Worker entry point.
+ * NYIT Pool — Cloudflare Worker.
  *
- * Routing:
- *   /api/*  -> handled here (future home of the Table Queue backend)
- *   *       -> static assets from public/ (the pool timer SPA)
+ *   /api/*  -> auth, queue parties, skip votes, match confirmation, leaderboard
+ *   *       -> static assets (public/)
  *
- * Env bindings (see wrangler.jsonc):
- *   env.ASSETS — Static Assets binding
- *   env.DB     — D1 database (Table Queue storage, placeholder)
+ * Bindings (wrangler.jsonc): env.ASSETS (assets), env.DB (D1).
+ * Secrets (`wrangler secret put ...` / .dev.vars for local):
+ *   ADMIN_PIN       — admin override actions (X-Admin-Pin header)
+ *   SESSION_SECRET  — HMAC key for session tokens (falls back to ADMIN_PIN)
  */
+
+import { rate, composite } from './glicko2.js';
 
 const json = (data, status = 200) =>
   new Response(JSON.stringify(data), {
     status,
     headers: { 'content-type': 'application/json; charset=utf-8' },
   });
+const bad = (msg, status = 400) => json({ error: msg }, status);
+const enc = new TextEncoder();
+
+/* ============================ auth / crypto ============================ */
+
+const b64 = buf => btoa(String.fromCharCode(...new Uint8Array(buf)));      // standard (padded)
+const b64url = buf =>                                                       // url-safe (tokens)
+  b64(buf).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+const fromB64url = s => atob(s.replace(/-/g, '+').replace(/_/g, '/'));
+
+async function pbkdf2(pin, saltB64) {
+  const salt = Uint8Array.from(atob(saltB64), c => c.charCodeAt(0));
+  const key = await crypto.subtle.importKey('raw', enc.encode(pin), 'PBKDF2', false, ['deriveBits']);
+  const bits = await crypto.subtle.deriveBits(
+    { name: 'PBKDF2', hash: 'SHA-256', salt, iterations: 100_000 }, key, 256);
+  return b64url(bits);
+}
+
+async function hmacKey(secret) {
+  return crypto.subtle.importKey('raw', enc.encode(secret),
+    { name: 'HMAC', hash: 'SHA-256' }, false, ['sign', 'verify']);
+}
+
+async function sign(payload, secret) {
+  const body = b64url(enc.encode(JSON.stringify(payload)));
+  const sig = b64url(await crypto.subtle.sign('HMAC', await hmacKey(secret), enc.encode(body)));
+  return `${body}.${sig}`;
+}
+
+async function verify(token, secret) {
+  if (typeof token !== 'string') return null;
+  const [body, sig] = token.split('.');
+  if (!body || !sig) return null;
+  const ok = await crypto.subtle.verify('HMAC', await hmacKey(secret),
+    Uint8Array.from(fromB64url(sig), c => c.charCodeAt(0)), enc.encode(body));
+  if (!ok) return null;
+  try {
+    const payload = JSON.parse(new TextDecoder().decode(
+      Uint8Array.from(fromB64url(body), c => c.charCodeAt(0))));
+    if (!payload.uid || payload.exp < Date.now()) return null;
+    return payload;
+  } catch { return null; }
+}
+
+const sessionSecret = env => env.SESSION_SECRET || env.ADMIN_PIN || 'dev-insecure-secret';
+
+async function issueToken(uid, env) {
+  return sign({ uid, exp: Date.now() + 30 * 24 * 3600 * 1000 }, sessionSecret(env));
+}
+
+async function currentUser(request, env) {
+  const h = request.headers.get('authorization') || '';
+  const token = h.startsWith('Bearer ') ? h.slice(7) : null;
+  const payload = await verify(token, sessionSecret(env));
+  if (!payload) return null;
+  return (await env.DB.prepare('SELECT * FROM users WHERE id = ?').bind(payload.uid).first()) || null;
+}
+
+async function requireUser(request, env) {
+  const user = await currentUser(request, env);
+  if (!user) throw new HttpError(401, 'sign in required');
+  return user;
+}
+
+async function isAdmin(request, env) {
+  const pin = request.headers.get('x-admin-pin');
+  if (!pin || !env.ADMIN_PIN) return false;
+  const a = await crypto.subtle.digest('SHA-256', enc.encode(pin));
+  const b = await crypto.subtle.digest('SHA-256', enc.encode(env.ADMIN_PIN));
+  return b64url(a) === b64url(b);
+}
+
+class HttpError extends Error {
+  constructor(status, msg) { super(msg); this.status = status; }
+}
+
+/* ============================ queue hours (America/New_York) ============================ */
+
+const TZ = 'America/New_York';
+const QUEUE_OPEN = 9 * 60;        // 9:00am
+const QUEUE_CLOSE = 21 * 60;      // 9:00pm — queue clears, no joins
+const SOLO_BLOCK_START = 12 * 60; // noon
+const SOLO_BLOCK_END = 18 * 60;   // 6:00pm — no solo/1v1 joins in this window
+
+function nyMinutes(env) {
+  if (env.TEST_TIME_OVERRIDE && /^\d{1,2}:\d{2}$/.test(env.TEST_TIME_OVERRIDE)) {
+    const [h, m] = env.TEST_TIME_OVERRIDE.split(':').map(Number);
+    return (h % 24) * 60 + m;
+  }
+  const parts = new Intl.DateTimeFormat('en-US',
+    { timeZone: TZ, hour: 'numeric', minute: 'numeric', hour12: false }).formatToParts(new Date());
+  const h = Number(parts.find(p => p.type === 'hour').value) % 24;
+  const m = Number(parts.find(p => p.type === 'minute').value);
+  return h * 60 + m;
+}
+
+function queueState(env) {
+  const t = nyMinutes(env);
+  if (t < QUEUE_OPEN || t >= QUEUE_CLOSE) return { open: false, solo: false };
+  return { open: true, solo: !(t >= SOLO_BLOCK_START && t < SOLO_BLOCK_END) };
+}
+
+/* outside hours the queue wipes itself on the first touch — no cron needed */
+async function clearIfClosed(db, env) {
+  const state = queueState(env);
+  if (state.open) return state;
+  await db.batch([
+    db.prepare("UPDATE queue_parties SET status = 'skipped' WHERE status IN ('waiting','playing')"),
+    db.prepare('DELETE FROM skip_votes'),
+  ]);
+  return state;
+}
+
+/* ============================ queue helpers ============================ */
+
+async function promoteNext(db) {
+  // the table hosts TWO parties at once (winner stays, challenger from the queue);
+  // promote the earliest waiting party while fewer than two are playing
+  const PROMOTE = `UPDATE queue_parties SET status = 'playing'
+    WHERE id = (SELECT id FROM queue_parties WHERE status = 'waiting' ORDER BY position LIMIT 1)
+      AND (SELECT COUNT(*) FROM queue_parties WHERE status = 'playing') < 2`;
+  await db.batch([db.prepare(PROMOTE), db.prepare(PROMOTE)]);
+}
+
+const PARTY_SELECT = `
+  SELECT p.id, p.format, p.status, p.position, p.created_at,
+         p.created_by_user_id, p.p1_user_id, p.p2_user_id, p.p2_guest_name,
+         u1.nickname AS p1_nick, u2.nickname AS p2_nick,
+         (SELECT COUNT(*) FROM skip_votes v WHERE v.party_id = p.id) AS votes
+  FROM queue_parties p
+  LEFT JOIN users u1 ON u1.id = p.p1_user_id
+  LEFT JOIN users u2 ON u2.id = p.p2_user_id
+`;
+
+function shapeParty(row) {
+  const mk = (uid, nick, guest) => uid || guest
+    ? { name: uid ? nick : `Guest: ${guest}`, registered: !!uid }
+    : null;
+  return {
+    id: row.id, format: row.format, status: row.status, votes: row.votes,
+    p1: mk(row.p1_user_id, row.p1_nick, row.p1_guest_name),
+    p2: mk(row.p2_user_id, row.p2_nick, row.p2_guest_name),
+  };
+}
+
+/* ============================ match commit ============================ */
+
+async function commitMatch(db, pending) {
+  const players = (await db.prepare(
+    'SELECT * FROM pending_match_players WHERE pending_match_id = ?').bind(pending.id).all()).results;
+  const ids = players.map(p => p.user_id).filter(Boolean);
+  const users = ids.length
+    ? (await db.batch(ids.map(id =>
+        db.prepare('SELECT * FROM users WHERE id = ?').bind(id)))).map(r => r.results[0])
+    : [];
+  const byId = new Map(users.map(u => [u.id, u]));
+
+  const stmts = [];
+  let ratingDelta = null;
+
+  if (pending.match_type === 'ranked') {
+    const t1 = players.filter(p => p.team === 1 && p.user_id).map(p => byId.get(p.user_id));
+    const t2 = players.filter(p => p.team === 2 && p.user_id).map(p => byId.get(p.user_id));
+    const opp1 = composite(t2), opp2 = composite(t1);
+    const deltas = [];
+    for (const p of players) {
+      if (!p.user_id) continue;
+      const u = byId.get(p.user_id);
+      const opp = p.team === 1 ? opp1 : opp2;
+      const won = p.team === pending.winner_team ? 1 : 0;
+      const after = rate(u, [{ rating: opp.rating, rd: opp.rd, score: won }]);
+      deltas.push(after.rating - u.glicko_rating);
+      stmts.push(db.prepare(
+        `UPDATE users SET glicko_rating = ?, glicko_rd = ?, glicko_vol = ?,
+         ranked_wins = ranked_wins + ?, ranked_losses = ranked_losses + ?,
+         last_played_at = ? WHERE id = ?`
+      ).bind(
+        Math.round(after.rating * 10) / 10, Math.round(after.rd * 10) / 10,
+        Math.round(after.vol * 10000) / 10000,
+        won, 1 - won, Date.now(), u.id));
+    }
+    if (deltas.length) ratingDelta = Math.round((deltas.reduce((a, b) => a + b, 0) / deltas.length) * 10) / 10;
+  } else {
+    for (const p of players) {
+      if (!p.user_id) continue;
+      const won = p.team === pending.winner_team ? 1 : 0;
+      stmts.push(db.prepare(
+        `UPDATE users SET casual_wins = casual_wins + ?, casual_losses = casual_losses + ?,
+         last_played_at = ? WHERE id = ?`
+      ).bind(won, 1 - won, Date.now(), p.user_id));
+    }
+  }
+
+  stmts.push(db.prepare(
+    'INSERT INTO matches (match_type, format, winner_team, rating_delta, played_at) VALUES (?, ?, ?, ?, ?)'
+  ).bind(pending.match_type, pending.format, pending.winner_team, ratingDelta, Date.now()));
+  stmts.push(db.prepare(`
+    INSERT INTO match_players (match_id, team, user_id, guest_name)
+    SELECT (SELECT MAX(id) FROM matches), team, user_id, guest_name
+    FROM pending_match_players WHERE pending_match_id = ?`).bind(pending.id));
+  stmts.push(db.prepare('DELETE FROM pending_matches WHERE id = ?').bind(pending.id));
+  await db.batch(stmts);
+  return { committed: true, rating_delta: ratingDelta };
+}
+
+/* ============================ routing ============================ */
 
 async function handleApi(request, env, url) {
   const { pathname } = url;
   const method = request.method;
 
-  // liveness probe
   if (pathname === '/api/health') {
     return json({ ok: true, time: new Date().toISOString() });
   }
 
-  // ---- Table Queue placeholder endpoints (wired to D1 once the feature ships) ----
-  if (pathname === '/api/queue') {
-    if (!env.DB) return json({ error: 'D1 not bound' }, 501);
-
-    if (method === 'GET') {
-      const { results } = await env.DB
-        .prepare('SELECT id, team_name, players, status, created_at FROM queue_entries ORDER BY id')
-        .all();
-      return json({ queue: results });
+  /* ---------- auth ---------- */
+  if (pathname === '/api/auth/register' && method === 'POST') {
+    const body = await request.json().catch(() => null);
+    const username = String(body?.username || '').trim().toLowerCase();
+    const nickname = String(body?.nickname || '').trim();
+    const pin = String(body?.pin || '');
+    if (!/^[a-z0-9_]{3,20}$/.test(username)) return bad('username: 3-20 chars, a-z 0-9 _');
+    if (!nickname || nickname.length > 24) return bad('nickname required (max 24 chars)');
+    if (!/^\d{4,6}$/.test(pin)) return bad('pin must be 4-6 digits');
+    const salt = b64(crypto.getRandomValues(new Uint8Array(16)).buffer);
+    const pinHash = await pbkdf2(pin, salt);
+    try {
+      const { meta } = await env.DB.prepare(
+        'INSERT INTO users (username, nickname, pin_hash, pin_salt, created_at) VALUES (?, ?, ?, ?, ?)'
+      ).bind(username, nickname, pinHash, salt, Date.now()).run();
+      return json({ token: await issueToken(meta.last_row_id, env),
+        user: { id: meta.last_row_id, username, nickname } }, 201);
+    } catch (e) {
+      if (String(e).includes('UNIQUE')) return bad('username already taken', 409);
+      throw e;
     }
-
-    if (method === 'POST') {
-      const body = await request.json().catch(() => null);
-      const team = typeof body?.team_name === 'string' ? body.team_name.trim().slice(0, 32) : '';
-      if (!team) return json({ error: 'team_name required' }, 400);
-      const { meta } = await env.DB
-        .prepare('INSERT INTO queue_entries (team_name, players) VALUES (?, ?)')
-        .bind(team, typeof body?.players === 'string' ? body.players.slice(0, 128) : '')
-        .run();
-      return json({ ok: true, id: meta.last_row_id }, 201);
-    }
-
-    return json({ error: 'method not allowed' }, 405);
   }
 
-  return json({ error: 'not found' }, 404);
+  if (pathname === '/api/auth/login' && method === 'POST') {
+    const body = await request.json().catch(() => null);
+    const username = String(body?.username || '').trim().toLowerCase();
+    const pin = String(body?.pin || '');
+    const user = await env.DB.prepare('SELECT * FROM users WHERE username = ?').bind(username).first();
+    if (!user) return bad('wrong username or pin', 401);
+    const hash = await pbkdf2(pin, user.pin_salt);
+    if (hash !== user.pin_hash) return bad('wrong username or pin', 401);
+    return json({ token: await issueToken(user.id, env),
+      user: { id: user.id, username: user.username, nickname: user.nickname } });
+  }
+
+  if (pathname === '/api/auth/me' && method === 'GET') {
+    const user = await requireUser(request, env);
+    return json({ user: { id: user.id, username: user.username, nickname: user.nickname } });
+  }
+
+  /* ---------- user search (teammate / match pickers) ---------- */
+  if (pathname === '/api/users' && method === 'GET') {
+    const q = '%' + (url.searchParams.get('q') || '').toLowerCase() + '%';
+    const { results } = await env.DB.prepare(
+      'SELECT id, username, nickname FROM users WHERE username LIKE ? OR nickname LIKE ? ORDER BY nickname LIMIT 10'
+    ).bind(q, q).all();
+    return json({ users: results });
+  }
+
+  /* ---------- party queue ---------- */
+  if (pathname === '/api/queue' && method === 'GET') {
+    const hours = await clearIfClosed(env.DB, env);
+    const { results } = await env.DB.prepare(
+      PARTY_SELECT + ` WHERE p.status IN ('playing', 'waiting')
+                       ORDER BY CASE p.status WHEN 'playing' THEN 0 ELSE 1 END, p.position`
+    ).all();
+    return json({ parties: results.map(shapeParty), hours });
+  }
+
+  if (pathname === '/api/queue/join' && method === 'POST') {
+    const user = await requireUser(request, env);
+    const state = queueState(env);
+    if (!state.open) return bad('queue is closed — open 9am to 9pm ET', 403);
+    const body = await request.json().catch(() => null);
+    const format = body?.format;
+    if (!['solo', 'duo'].includes(format)) return bad('format must be solo or duo');
+    if (format === 'solo' && (body?.p2_user_id || body?.p2_guest_name)) {
+      return bad('solo parties have no second player');
+    }
+    if (format === 'solo' && !state.solo) {
+      return bad('solo play is restricted — duo only from noon to 6pm ET', 403);
+    }
+    let p2UserId = null, p2Guest = null;
+    if (body?.p2_user_id) {
+      const mate = await env.DB.prepare('SELECT id FROM users WHERE id = ?').bind(Number(body.p2_user_id)).first();
+      if (!mate) return bad('teammate not found');
+      if (mate.id === user.id) return bad("can't team with yourself");
+      p2UserId = mate.id;
+    } else if (body?.p2_guest_name) {
+      p2Guest = String(body.p2_guest_name).trim().slice(0, 24);
+      if (!p2Guest) return bad('guest name required');
+    }
+    const mine = await env.DB.prepare(
+      `SELECT id FROM queue_parties WHERE status IN ('waiting','playing')
+       AND (p1_user_id = ? OR p2_user_id = ?)`
+    ).bind(user.id, user.id).first();
+    if (mine) return bad('you are already in the queue', 409);
+    const max = await env.DB.prepare(
+      'SELECT COALESCE(MAX(position), 0) AS m FROM queue_parties').first();
+    const { meta } = await env.DB.prepare(
+      `INSERT INTO queue_parties (format, created_by_user_id, p1_user_id, p2_user_id, p2_guest_name, position, created_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?)`
+    ).bind(format, user.id, user.id, p2UserId, p2Guest, max.m + 1, Date.now()).run();
+    await promoteNext(env.DB); // free table -> earliest party starts
+    return json({ ok: true, id: meta.last_row_id }, 201);
+  }
+
+  let m = pathname.match(/^\/api\/queue\/(\d+)\/teammate$/);
+  if (m && method === 'PATCH') {
+    const user = await requireUser(request, env);
+    const party = await env.DB.prepare('SELECT * FROM queue_parties WHERE id = ?').bind(Number(m[1])).first();
+    if (!party) return bad('not found', 404);
+    if (party.format !== 'duo') return bad('solo parties have no teammate slot');
+    if (party.status !== 'waiting') return bad('party already in play');
+    const body = await request.json().catch(() => null);
+    const isCreator = party.created_by_user_id === user.id;
+    const open = party.p2_user_id === null && party.p2_guest_name === null;
+    const claiming = open && user.id !== party.created_by_user_id
+      && body?.p2_user_id == null && !body?.p2_guest_name;
+    if (!isCreator && !claiming) return bad('only the creator (or a claiming teammate) can set Player 2', 403);
+    if (claiming) {
+      await env.DB.prepare('UPDATE queue_parties SET p2_user_id = ? WHERE id = ?').bind(user.id, party.id).run();
+    } else if (body?.p2_user_id) {
+      const mate = await env.DB.prepare('SELECT id FROM users WHERE id = ?').bind(Number(body.p2_user_id)).first();
+      if (!mate) return bad('teammate not found');
+      await env.DB.prepare('UPDATE queue_parties SET p2_user_id = ?, p2_guest_name = NULL WHERE id = ?')
+        .bind(mate.id, party.id).run();
+    } else if (body?.p2_guest_name) {
+      const g = String(body.p2_guest_name).trim().slice(0, 24);
+      if (!g) return bad('guest name required');
+      await env.DB.prepare('UPDATE queue_parties SET p2_guest_name = ?, p2_user_id = NULL WHERE id = ?')
+        .bind(g, party.id).run();
+    } else if (isCreator && body?.p2_guest_name === '') {
+      await env.DB.prepare('UPDATE queue_parties SET p2_guest_name = NULL, p2_user_id = NULL WHERE id = ?')
+        .bind(party.id).run();
+    } else return bad('provide p2_user_id or p2_guest_name');
+    return json({ ok: true });
+  }
+
+  m = pathname.match(/^\/api\/queue\/(\d+)\/vote-skip$/);
+  if (m && method === 'POST') {
+    const user = await requireUser(request, env);
+    const id = Number(m[1]);
+    const party = await env.DB.prepare('SELECT * FROM queue_parties WHERE id = ?').bind(id).first();
+    if (!party || !['waiting', 'playing'].includes(party.status)) return bad('not found', 404);
+    if (party.p1_user_id === user.id || party.p2_user_id === user.id) {
+      return bad("can't vote to skip your own party");
+    }
+    await env.DB.prepare('INSERT OR IGNORE INTO skip_votes (party_id, voter_user_id, created_at) VALUES (?, ?, ?)')
+      .bind(id, user.id, Date.now()).run();
+    const { n } = await env.DB.prepare(
+      'SELECT COUNT(*) AS n FROM skip_votes WHERE party_id = ?').bind(id).first();
+    if (n >= 3) {
+      await env.DB.batch([
+        env.DB.prepare("UPDATE queue_parties SET status = 'skipped' WHERE id = ?").bind(id),
+        env.DB.prepare('DELETE FROM skip_votes WHERE party_id = ?').bind(id),
+      ]);
+      await promoteNext(env.DB); // refill the table if a playing party was skipped
+      return json({ skipped: true, votes: 3 });
+    }
+    return json({ skipped: false, votes: n });
+  }
+
+  m = pathname.match(/^\/api\/queue\/(\d+)$/);
+  if (m && method === 'DELETE') {
+    const user = await requireUser(request, env);
+    const id = Number(m[1]);
+    const party = await env.DB.prepare('SELECT * FROM queue_parties WHERE id = ?').bind(id).first();
+    if (!party) return bad('not found', 404);
+    const member = party.p1_user_id === user.id || party.p2_user_id === user.id;
+    const admin = await isAdmin(request, env);
+    if (!member && !admin) return bad('not your party', 403);
+    await env.DB.batch([
+      env.DB.prepare("UPDATE queue_parties SET status = 'skipped' WHERE id = ?").bind(id),
+      env.DB.prepare('DELETE FROM skip_votes WHERE party_id = ?').bind(id),
+    ]);
+    await promoteNext(env.DB); // table seat freed — next party steps up
+    return json({ ok: true });
+  }
+
+  /* ---------- match logging & confirmation ---------- */
+  if (pathname === '/api/matches/submit' && method === 'POST') {
+    const user = await requireUser(request, env);
+    const body = await request.json().catch(() => null);
+    const matchType = body?.match_type;
+    const format = body?.format;
+    const winnerTeam = Number(body?.winner_team);
+    if (!['ranked', 'casual'].includes(matchType)) return bad('match_type must be ranked or casual');
+    if (!['1v1', '2v2', '2v1'].includes(format)) return bad('format must be 1v1, 2v2 or 2v1');
+    if (![1, 2].includes(winnerTeam)) return bad('winner_team must be 1 or 2');
+
+    const sizes = { '1v1': [1, 1], '2v2': [2, 2], '2v1': [2, 1] };
+    const t1 = Array.isArray(body?.teams?.[1]) ? body.teams[1] : null;
+    const t2 = Array.isArray(body?.teams?.[2]) ? body.teams[2] : null;
+    if (!t1 || !t2 || t1.length !== sizes[format][0] || t2.length !== sizes[format][1]) {
+      return bad(`teams must match format ${format}`);
+    }
+    const slots = [...t1.map(p => ({ ...p, team: 1 })), ...t2.map(p => ({ ...p, team: 2 }))];
+    for (const s of slots) {
+      if (!s || (s.user_id == null && !String(s.guest_name || '').trim())) {
+        return bad('each player needs a user or guest name');
+      }
+    }
+    const uidSet = new Set(slots.filter(s => s.user_id != null).map(s => Number(s.user_id)));
+    if (uidSet.size !== slots.filter(s => s.user_id != null).length) return bad('duplicate player');
+    if (!uidSet.has(user.id)) return bad('you must be one of the players');
+
+    const found = (await env.DB.batch([...uidSet].map(id =>
+      env.DB.prepare('SELECT id FROM users WHERE id = ?').bind(id)))).map(r => r.results[0]);
+    if (found.some(u => !u)) return bad('unknown user in match');
+
+    const hasGuest = slots.some(s => s.user_id == null);
+    const type = hasGuest ? 'casual' : matchType; // guests force casual
+
+    const { meta } = await env.DB.prepare(
+      'INSERT INTO pending_matches (match_type, format, winner_team, submitted_by_user_id, created_at) VALUES (?, ?, ?, ?, ?)'
+    ).bind(type, format, winnerTeam, user.id, Date.now()).run();
+    const pid = meta.last_row_id;
+
+    await env.DB.batch(slots.map(s => {
+      const confirmed = (s.user_id != null && Number(s.user_id) !== user.id) ? 0 : 1; // guests & submitter auto-confirm
+      return env.DB.prepare(
+        'INSERT INTO pending_match_players (pending_match_id, team, user_id, guest_name, confirmed) VALUES (?, ?, ?, ?, ?)'
+      ).bind(pid, s.team, s.user_id != null ? Number(s.user_id) : null,
+        s.user_id != null ? null : String(s.guest_name).trim().slice(0, 24), confirmed);
+    }));
+
+    const others = slots.filter(s => s.user_id != null && Number(s.user_id) !== user.id);
+    if (!others.length) {
+      const pending = await env.DB.prepare('SELECT * FROM pending_matches WHERE id = ?').bind(pid).first();
+      const res = await commitMatch(env.DB, pending);
+      return json({ committed: true, match_type: type, rating_delta: res.rating_delta }, 201);
+    }
+    return json({ committed: false, pending_id: pid, awaiting: others.length }, 201);
+  }
+
+  if (pathname === '/api/notifications' && method === 'GET') {
+    const user = await requireUser(request, env);
+    const sql = `
+      SELECT pm.id, pm.match_type, pm.format, pm.winner_team, pm.status, pm.created_at,
+             (SELECT COUNT(*) FROM pending_match_players x
+              WHERE x.pending_match_id = pm.id AND x.confirmed = 0) AS unconfirmed
+      FROM pending_matches pm JOIN pending_match_players mp ON mp.pending_match_id = pm.id
+      WHERE mp.user_id = ? AND mp.confirmed = 0`;
+    const { results } = await env.DB.prepare(sql).bind(user.id).all();
+    const admin = await isAdmin(request, env);
+    let adminList = null;
+    if (admin) {
+      adminList = (await env.DB.prepare(
+        `SELECT pm.id, pm.match_type, pm.format, pm.winner_team, pm.status, pm.created_at,
+                (SELECT COUNT(*) FROM pending_match_players x WHERE x.pending_match_id = pm.id AND x.confirmed = 0) AS unconfirmed
+         FROM pending_matches pm WHERE pm.status IN ('pending','disputed') ORDER BY pm.id DESC`
+      ).all()).results;
+    }
+    return json({ notifications: results, admin: adminList, admin_unlocked: admin });
+  }
+
+  m = pathname.match(/^\/api\/matches\/(\d+)\/respond$/);
+  if (m && method === 'POST') {
+    const user = await requireUser(request, env);
+    const body = await request.json().catch(() => null);
+    const action = body?.action;
+    if (!['confirm', 'dispute'].includes(action)) return bad('action must be confirm or dispute');
+    const pending = await env.DB.prepare('SELECT * FROM pending_matches WHERE id = ?').bind(Number(m[1])).first();
+    if (!pending || !['pending', 'disputed'].includes(pending.status)) return bad('not found', 404);
+    const me = await env.DB.prepare(
+      'SELECT * FROM pending_match_players WHERE pending_match_id = ? AND user_id = ?'
+    ).bind(pending.id, user.id).first();
+    if (!me) return bad('you are not in this match', 403);
+    if (action === 'dispute') {
+      await env.DB.prepare("UPDATE pending_matches SET status = 'disputed' WHERE id = ?").bind(pending.id).run();
+      return json({ ok: true, status: 'disputed' });
+    }
+    await env.DB.prepare('UPDATE pending_match_players SET confirmed = 1 WHERE id = ?').bind(me.id).run();
+    const left = await env.DB.prepare(
+      'SELECT COUNT(*) AS n FROM pending_match_players WHERE pending_match_id = ? AND confirmed = 0'
+    ).bind(pending.id).first();
+    if (left.n === 0) {
+      const res = await commitMatch(env.DB, pending);
+      return json({ committed: true, rating_delta: res.rating_delta });
+    }
+    return json({ committed: false, unconfirmed: left.n });
+  }
+
+  m = pathname.match(/^\/api\/matches\/(\d+)\/admin-approve$/);
+  if (m && method === 'POST') {
+    if (!(await isAdmin(request, env))) return bad('admin pin required', 403);
+    const pending = await env.DB.prepare(
+      "SELECT * FROM pending_matches WHERE id = ? AND status IN ('pending','disputed')"
+    ).bind(Number(m[1])).first();
+    if (!pending) return bad('not found', 404);
+    const res = await commitMatch(env.DB, pending);
+    return json({ committed: true, rating_delta: res.rating_delta });
+  }
+
+  /* ---------- leaderboard & history ---------- */
+  if (pathname === '/api/leaderboard' && method === 'GET') {
+    const { results } = await env.DB.prepare(
+      `SELECT id, username, nickname, glicko_rating, glicko_rd,
+              ranked_wins, ranked_losses, casual_wins, casual_losses
+       FROM users ORDER BY glicko_rating DESC LIMIT 50`
+    ).all();
+    return json({ leaderboard: results });
+  }
+
+  if (pathname === '/api/matches' && method === 'GET') {
+    const { results } = await env.DB.prepare(
+      `SELECT m.id, m.match_type, m.format, m.winner_team, m.rating_delta, m.played_at,
+              (SELECT group_concat(
+                 CASE WHEN mp.user_id IS NOT NULL
+                      THEN (SELECT nickname FROM users u WHERE u.id = mp.user_id)
+                      ELSE 'Guest: ' || mp.guest_name END, ' | ')
+               FROM match_players mp WHERE mp.match_id = m.id AND mp.team = 1) AS team1,
+              (SELECT group_concat(
+                 CASE WHEN mp.user_id IS NOT NULL
+                      THEN (SELECT nickname FROM users u WHERE u.id = mp.user_id)
+                      ELSE 'Guest: ' || mp.guest_name END, ' | ')
+               FROM match_players mp WHERE mp.match_id = m.id AND mp.team = 2) AS team2
+       FROM matches m ORDER BY m.played_at DESC LIMIT 20`
+    ).all();
+    return json({ matches: results });
+  }
+
+  return bad('not found', 404);
 }
 
 export default {
   async fetch(request, env) {
     const url = new URL(request.url);
-
     if (url.pathname.startsWith('/api/')) {
       try {
         return await handleApi(request, env, url);
       } catch (err) {
+        if (err instanceof HttpError) return bad(err.message, err.status);
         return json({ error: 'internal error', detail: String(err?.message || err) }, 500);
       }
     }
-
-    // everything else: static assets (public/)
     return env.ASSETS.fetch(request);
   },
 };
