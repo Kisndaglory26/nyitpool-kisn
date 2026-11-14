@@ -145,38 +145,68 @@
   .seg button{padding:8px 14px;font-size:.9rem;font-weight:700;color:var(--muted);background:var(--panel2);transition:.12s}
   .seg button:hover{color:var(--text)}
   .seg button.on{color:var(--accent);background:color-mix(in srgb,var(--accent) 14%,var(--panel2))}
+  #hub-main{display:flex;flex-direction:column;gap:12px}
   .hub-tabs{width:100%;display:flex}
   .hub-tabs button{flex:1;padding:12px 10px;font-size:1rem}
   .hub-tab{flex:1;display:flex;flex-direction:column;gap:12px;min-height:0}
   .q-party{
-    display:flex;align-items:center;gap:12px;background:var(--panel);
-    border:1px solid var(--line);border-radius:14px;padding:12px 14px;
+    background:var(--panel);border:1px solid var(--line);border-radius:14px;
   }
-  .q-party .pos{
-    flex-shrink:0;width:32px;height:32px;border-radius:50%;display:grid;place-items:center;
-    font-weight:800;color:var(--muted);border:1px solid var(--line);font-size:.9rem;
-  }
-  .q-party .info{flex:1;min-width:0}
-  .q-party .names{font-weight:700;font-size:1rem;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-  .q-party .fmt{
+  .fmt{
     display:inline-block;font-size:.62rem;font-weight:800;letter-spacing:.12em;color:var(--muted);
-    border:1px solid var(--line);border-radius:6px;padding:2px 7px;margin-left:8px;vertical-align:middle;
+    border:1px solid var(--line);border-radius:6px;padding:2px 7px;vertical-align:middle;
   }
-  .q-party .actions{display:flex;gap:8px;flex-shrink:0}
+  .q-players{display:flex;gap:8px;min-width:0;flex-wrap:wrap}
+  .q-grp{display:flex;flex-direction:column;gap:6px;flex:1;min-width:130px}
+  .pcard{
+    flex:1;min-width:120px;background:var(--panel2);border:1px solid var(--line);
+    border-radius:12px;padding:9px 12px;display:flex;flex-direction:column;gap:3px;
+  }
+  .pcard .p-top{display:flex;justify-content:space-between;align-items:baseline;gap:10px}
+  .pcard .nick{font-weight:800;font-size:.95rem;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .pcard .elo{color:var(--accent);font-weight:800;font-variant-numeric:tabular-nums;flex-shrink:0}
+  .pcard .user{font-size:.72rem;color:var(--muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .q-party .actions{
+    display:flex;gap:6px;flex-wrap:wrap;align-items:center;justify-content:flex-end;
+    padding-top:2px;border-top:1px solid var(--line);margin-top:2px;
+  }
   .q-now{
     border:3px solid var(--ok);border-radius:16px;padding:14px 16px;
     display:flex;align-items:center;gap:12px;flex-wrap:wrap;
     background:linear-gradient(180deg,rgba(52,211,153,.1),transparent 70%),var(--panel);
   }
-  .q-now .info{flex:1;min-width:0}
-  .q-now .names{font-size:clamp(1.1rem,3vw,1.5rem);font-weight:800}
+  .q-now .pcard.big .nick{font-size:1.05rem}
+  .q-now .vs{align-self:center;font-weight:900;color:var(--muted);font-size:1.2rem;flex-shrink:0}
   .chip-now{
     font-size:.65rem;font-weight:800;letter-spacing:.16em;color:var(--ok);
     border:1px solid var(--ok);border-radius:999px;padding:4px 12px;
   }
+  .q-table{width:100%;border-collapse:collapse;font-size:.9rem}
+  .q-table th{
+    position:sticky;top:0;background:var(--panel);z-index:1;
+    font-size:.62rem;font-weight:800;letter-spacing:.14em;text-transform:uppercase;color:var(--muted);
+    text-align:left;padding:8px;border-bottom:1px solid var(--line);
+  }
+  .q-table td{padding:10px 8px;border-bottom:1px solid var(--line);vertical-align:middle;white-space:nowrap}
+  .q-table tr:last-child td{border-bottom:none}
+  .q-table .pos{color:var(--muted);font-weight:800;width:30px}
+  .q-table .fmt-cell{width:52px}
+  .q-table .skip-cell{width:78px}
+  .q-table .act-cell{width:70px;text-align:right}
+  .q-table .act-cell .btn-ghost,.q-table .skip-cell .btn-ghost{padding:6px 9px;font-size:.75rem}
+  .pline{display:flex;align-items:baseline;gap:8px;min-width:0;max-width:46vw;overflow:hidden}
+  .pline b{font-weight:800;flex-shrink:0;max-width:45%;overflow:hidden;text-overflow:ellipsis}
+  .pline .meta{color:var(--muted);font-size:.74rem;overflow:hidden;text-overflow:ellipsis}
+  .pline .meta .elo{color:var(--accent);font-weight:800;font-variant-numeric:tabular-nums}
+  .pline.guest b{color:var(--muted);font-weight:700}
+  .q-now .q-players{flex-wrap:nowrap}
   .q-empty{color:var(--muted);text-align:center;padding:clamp(18px,5vh,50px) 14px;font-size:1rem}
   .q-empty .big{display:block;font-size:clamp(1.3rem,4vw,1.9rem);font-weight:800;color:var(--text);margin-bottom:6px}
-  .hub-join{display:flex;gap:8px;flex-wrap:wrap;padding-top:4px}
+  .hub-join{
+    display:flex;gap:8px;flex-wrap:nowrap;padding:12px;background:var(--panel);
+    border:1px solid var(--line);border-radius:14px;
+  }
+  .hub-join .name-input{flex:1 1 90px;min-width:0;font-size:.88rem}
   .hub-join .name-input{flex:1 1 120px;font-size:.9rem}
   .hub-join .btn-primary{flex-shrink:0;padding:10px 18px}
   .log-row{align-self:flex-start}
@@ -191,7 +221,9 @@
     border-radius:12px;padding:10px 14px;
   }
   .board-row .rank{font-size:.7rem;font-weight:800;letter-spacing:.04em;color:var(--warn);flex-shrink:0;width:9ch}
-  .board-row .nick{flex:1;min-width:0;font-weight:700;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .board-row .nickwrap{flex:1;min-width:0;display:flex;flex-direction:column;gap:1px}
+  .board-row .nick{font-weight:700;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .board-row .user{font-size:.72rem;color:var(--muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
   .board-row .nums{font-size:.78rem;color:var(--muted);font-variant-numeric:tabular-nums;text-align:right}
   .board-h{margin:14px 0 0;font-size:.8rem;letter-spacing:.14em;text-transform:uppercase;color:var(--muted)}
   .feed-row{
@@ -588,8 +620,6 @@
         </div>
 
         <div id="tab-queue" class="hub-tab">
-          <div id="hub-playing" hidden></div>
-          <div id="hub-list"></div>
           <form id="hub-join" class="hub-join" autocomplete="off">
             <div class="seg" id="join-format">
               <button type="button" data-v="solo" class="on">Solo</button>
@@ -600,6 +630,9 @@
             <button class="btn-primary" type="submit">Join</button>
           </form>
           <datalist id="users-dl"></datalist>
+
+          <div id="hub-playing" hidden></div>
+          <div id="hub-list"></div>
         </div>
 
         <div id="tab-log" class="hub-tab" hidden>
@@ -1036,13 +1069,29 @@ const Hub = (() => {
     $('#hub-user').hidden = true;
     $('#hub-bell').hidden = true;
   });
-  $('#hub-admin-btn').addEventListener('click', () => {
+  $('#hub-admin-btn').addEventListener('click', async () => {
+    if (adminPin) { // tap again to lock
+      adminPin = null;
+      $('#hub-admin-btn').textContent = '🔒';
+      if (!$('#hub-drawer').hidden) refreshDrawer();
+      return;
+    }
     const pin = prompt('Admin PIN');
-    if (pin === null) return;
-    adminPin = pin || null;
-    $('#hub-admin-btn').textContent = adminPin ? '🔓' : '🔒';
-    if (adminPin && !$('#hub-drawer').hidden) refreshDrawer();
-    refreshAll();
+    if (pin === null || pin === '') return;
+    adminPin = pin;
+    try {
+      const { admin_unlocked } = await api('/notifications');
+      if (!admin_unlocked) {
+        adminPin = null;
+        alert('Wrong admin PIN.');
+        return;
+      }
+      $('#hub-admin-btn').textContent = '🔓';
+      if (!$('#hub-drawer').hidden) refreshDrawer();
+    } catch (ex) {
+      adminPin = null;
+      alert(ex.message);
+    }
   });
 
   /* ---------- tabs ---------- */
@@ -1141,6 +1190,17 @@ const Hub = (() => {
     if (qMode.mode === 'duo-only' && wantSolo) $('#join-format [data-v="duo"]').click();
   }
 
+  /* leaderboard-style player card: nickname + @username + elo */
+  function pcard(p, big) {
+    const c = el('div', 'pcard' + (big ? ' big' : ''));
+    const top = el('div', 'p-top');
+    top.append(el('span', 'nick', p.name));
+    if (p.elo != null) top.append(el('span', 'elo', String(p.elo)));
+    c.append(top);
+    c.append(el('span', 'user', p.registered ? '@' + p.username : 'guest'));
+    return c;
+  }
+
   function renderQueue() {
     renderHours();
     const playing = parties ? parties.filter(p => p.status === 'playing') : [];
@@ -1149,21 +1209,31 @@ const Hub = (() => {
     const list = $('#hub-list');
 
     nowBox.hidden = !playing.length;
+    nowBox.className = 'q-now';
     nowBox.innerHTML = '';
     if (playing.length) {
       nowBox.append(el('span', 'chip-now', playing.length === 2 ? 'ON THE TABLE' : 'HOLDING THE TABLE'));
-      const names = playing.map(p => p.p1.name + (p.p2 ? ' & ' + p.p2.name : ''));
-      const info = el('div', 'info');
-      info.append(el('div', 'names', playing.length === 2 ? names[0] + '  vs  ' + names[1] : names[0]));
+      const wrap = el('div', 'q-players');
+      const grp = p => {
+        const g = el('div', 'q-grp');
+        g.append(pcard(p.p1, true));
+        if (p.p2) g.append(pcard(p.p2, true));
+        return g;
+      };
+      wrap.append(grp(playing[0]));
+      if (playing[1]) {
+        wrap.append(el('span', 'vs', 'vs'));
+        wrap.append(grp(playing[1]));
+      }
       const btns = el('div', 'actions');
       playing.forEach(p => {
-        btns.append(actBtn('“' + (p.p1.name.split(' ')[0]) + '” out', async () => {
-          if (confirm('Remove ' + names[playing.indexOf(p)] + ' from the table? Next in line steps up.')) {
+        btns.append(actBtn((p.p1.name.split(' ')[0]) + ' out', async () => {
+          if (confirm('Remove ' + p.p1.name + ' from the table? Next in line steps up.')) {
             await api('/queue/' + p.id, { method: 'DELETE' }); refreshAll();
           }
         }));
       });
-      nowBox.append(info, btns);
+      nowBox.append(wrap, btns);
     }
 
     list.innerHTML = '';
@@ -1181,42 +1251,74 @@ const Hub = (() => {
           : '<span class="big">Table is free</span>Join the queue to claim it.';
       }
       list.append(empty);
+      return;
     }
+
+    const table = el('table', 'q-table');
+    const thead = el('thead');
+    const hr = el('tr');
+    ['#', 'Players', 'Type', 'Skip', ''].forEach((h, i) => {
+      const th = el('th', null, h);
+      if (i >= 3) th.style.textAlign = i === 4 ? 'right' : 'left';
+      hr.append(th);
+    });
+    thead.append(hr);
+    const tbody = el('tbody');
+    table.append(thead, tbody);
+
+    const pline = p => {
+      const line = el('div', 'pline' + (p.registered ? '' : ' guest'));
+      if (p.registered) {
+        line.append(el('b', null, p.name));
+        const meta = el('span', 'meta');
+        meta.append(document.createTextNode('@' + p.username + ' · '));
+        meta.append(el('span', 'elo', String(p.elo)));
+        line.append(meta);
+      } else {
+        line.append(el('b', null, p.name));
+        line.append(el('span', 'meta', 'guest'));
+      }
+      return line;
+    };
+
     waiting.forEach((p, k) => {
-      const mine = me && [p.p1, p.p2].some(x => x && x.registered && x.name === me.nickname);
-      const row = el('div', 'q-party');
-      const info = el('div', 'info');
-      const names = el('div', 'names');
-      names.append(document.createTextNode(p.p1.name + (p.p2 ? ' & ' + p.p2.name : '')));
-      const fmt = el('span', 'fmt', p.format.toUpperCase());
-      names.append(fmt);
-      info.append(names);
-      const btns = el('div', 'actions');
-      const vote = actBtn(`Skip ${p.votes}/3`, async () => {
+      const mine = me && [p.p1, p.p2].some(x => x && x.registered && x.username === me.username);
+      const tr = el('tr');
+      tr.append(el('td', 'pos', String(k + 2)));
+      const players = el('td');
+      players.append(pline(p.p1));
+      if (p.p2) players.append(pline(p.p2));
+      tr.append(players);
+      const fmtCell = el('td', 'fmt-cell');
+      fmtCell.append(el('span', 'fmt', p.format.toUpperCase()));
+      tr.append(fmtCell);
+      const skipCell = el('td', 'skip-cell');
+      skipCell.append(actBtn(`${p.votes}/3`, async () => {
         const r = await api('/queue/' + p.id + '/vote-skip', { method: 'POST' });
         if (r.skipped) refreshAll();
-      });
-      btns.append(vote);
+      }, 'Vote to skip ' + p.p1.name));
+      tr.append(skipCell);
+      const actCell = el('td', 'act-cell');
       if (mine) {
-        btns.append(actBtn('Leave', async () => {
+        actCell.append(actBtn('Leave', async () => {
           await api('/queue/' + p.id, { method: 'DELETE' }); refreshAll();
         }));
-      }
-      if (!p.p2 && p.format === 'duo' && me) {
-        const open = p.p1 && p.p1.name !== me.nickname;
-        if (open) btns.append(actBtn('+ Team up', async () => {
+      } else if (!p.p2 && p.format === 'duo' && me) {
+        actCell.append(actBtn('Team up', async () => {
           await api('/queue/' + p.id + '/teammate', { method: 'PATCH', body: {} });
           refreshAll();
         }));
       }
-      row.append(el('span', 'pos', String(k + 2)), info, btns);
-      list.append(row);
+      tr.append(actCell);
+      tbody.append(tr);
     });
+    list.append(table);
   }
 
-  function actBtn(label, fn) {
+  function actBtn(label, fn, aria) {
     const b = el('button', 'btn-ghost', label);
     b.type = 'button';
+    if (aria) b.setAttribute('aria-label', aria);
     b.addEventListener('click', async () => { try { await fn(); } catch (ex) { alert(ex.message); } });
     return b;
   }
@@ -1313,7 +1415,10 @@ const Hub = (() => {
       lb.forEach(u => {
         const row = el('div', 'board-row');
         row.append(el('span', 'rank', tier(u.glicko_rating, u.glicko_rd, u.ranked_wins + u.ranked_losses)));
-        row.append(el('span', 'nick', u.nickname));
+        const nickwrap = el('div', 'nickwrap');
+        nickwrap.append(el('span', 'nick', u.nickname));
+        nickwrap.append(el('span', 'user', '@' + u.username));
+        row.append(nickwrap);
         row.append(el('span', 'nums',
           `${Math.round(u.glicko_rating)} · R ${u.ranked_wins}–${u.ranked_losses} · C ${u.casual_wins}–${u.casual_losses}`));
         list.append(row);
