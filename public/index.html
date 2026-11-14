@@ -105,20 +105,111 @@
   .mode h2{margin:0;font-size:clamp(1.5rem,4vw,2.4rem);letter-spacing:.01em}
   .mode p{margin:0;color:var(--muted);max-width:36ch;text-align:center;line-height:1.55}
   .mode:hover,.mode:focus-visible{transform:translateY(-4px);border-color:var(--mc);box-shadow:0 14px 40px -18px var(--mc)}
-  .soon-badge{
-    font-size:.65rem;font-weight:800;letter-spacing:.18em;color:var(--muted);
-    border:1px dashed var(--muted);border-radius:999px;padding:4px 12px;
-  }
   .modesel-wrap{min-height:100dvh;display:flex;flex-direction:column}
   .modesel-top{display:flex;align-items:center;gap:14px;padding:16px clamp(16px,4vw,56px) 0;flex-wrap:wrap}
   .modesel-top h2{margin:0;font-size:clamp(1.2rem,2.6vw,1.8rem)}
-  .queue-wrap{
-    min-height:100dvh;display:flex;flex-direction:column;align-items:center;justify-content:center;
-    gap:14px;padding:24px;text-align:center;
+
+  /* ---------- companion hub (queue / log / ranks) ---------- */
+  .hub-wrap{
+    flex:1;width:100%;min-height:100dvh;display:flex;flex-direction:column;gap:12px;
+    padding:14px clamp(14px,4vw,24px) calc(14px + env(safe-area-inset-bottom));
+    max-width:680px;margin:0 auto;
   }
-  .queue-wrap h2{margin:0;font-size:clamp(2rem,6vw,4rem);font-weight:900}
-  .queue-wrap p{margin:0;color:var(--muted);font-size:clamp(1rem,2.4vw,1.4rem);max-width:44ch}
-  .queue-wrap .btn-primary{margin-top:18px}
+  .hub-head{display:flex;align-items:center;gap:10px;flex-wrap:wrap}
+  .hub-title{font-weight:800;font-size:1.15rem;letter-spacing:.02em}
+  .hub-user{
+    font-size:.8rem;font-weight:700;color:var(--t2);
+    border:1px solid var(--t2);border-radius:999px;padding:4px 12px;
+  }
+  .hub-bell{position:relative}
+  .bell-n{
+    position:absolute;top:-7px;right:-7px;min-width:18px;height:18px;border-radius:99px;
+    background:var(--danger);color:#fff;font-size:.68rem;font-weight:800;
+    display:grid;place-items:center;padding:0 4px;
+  }
+  .gate-card{
+    max-width:400px;width:100%;margin:auto;padding:26px 22px;display:flex;flex-direction:column;gap:12px;
+    background:var(--panel);border:1px solid var(--line);border-radius:20px;
+  }
+  .gate-card h3{margin:0;font-size:1.3rem}
+  .gate-card label{display:flex;flex-direction:column;gap:6px;font-size:.75rem;font-weight:800;letter-spacing:.14em;color:var(--muted)}
+  .gate-seg{align-self:start}
+  .seg{display:inline-flex;border:1px solid var(--line);border-radius:10px;overflow:hidden}
+  .seg button{padding:8px 14px;font-size:.9rem;font-weight:700;color:var(--muted);background:var(--panel2);transition:.12s}
+  .seg button:hover{color:var(--text)}
+  .seg button.on{color:var(--accent);background:color-mix(in srgb,var(--accent) 14%,var(--panel2))}
+  .hub-tabs{width:100%;display:flex}
+  .hub-tabs button{flex:1;padding:12px 10px;font-size:1rem}
+  .hub-tab{flex:1;display:flex;flex-direction:column;gap:12px;min-height:0}
+  .q-party{
+    display:flex;align-items:center;gap:12px;background:var(--panel);
+    border:1px solid var(--line);border-radius:14px;padding:12px 14px;
+  }
+  .q-party .pos{
+    flex-shrink:0;width:32px;height:32px;border-radius:50%;display:grid;place-items:center;
+    font-weight:800;color:var(--muted);border:1px solid var(--line);font-size:.9rem;
+  }
+  .q-party .info{flex:1;min-width:0}
+  .q-party .names{font-weight:700;font-size:1rem;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .q-party .fmt{
+    display:inline-block;font-size:.62rem;font-weight:800;letter-spacing:.12em;color:var(--muted);
+    border:1px solid var(--line);border-radius:6px;padding:2px 7px;margin-left:8px;vertical-align:middle;
+  }
+  .q-party .actions{display:flex;gap:8px;flex-shrink:0}
+  .q-now{
+    border:3px solid var(--ok);border-radius:16px;padding:14px 16px;
+    display:flex;align-items:center;gap:12px;flex-wrap:wrap;
+    background:linear-gradient(180deg,rgba(52,211,153,.1),transparent 70%),var(--panel);
+  }
+  .q-now .info{flex:1;min-width:0}
+  .q-now .names{font-size:clamp(1.1rem,3vw,1.5rem);font-weight:800}
+  .chip-now{
+    font-size:.65rem;font-weight:800;letter-spacing:.16em;color:var(--ok);
+    border:1px solid var(--ok);border-radius:999px;padding:4px 12px;
+  }
+  .q-empty{color:var(--muted);text-align:center;padding:clamp(18px,5vh,50px) 14px;font-size:1rem}
+  .q-empty .big{display:block;font-size:clamp(1.3rem,4vw,1.9rem);font-weight:800;color:var(--text);margin-bottom:6px}
+  .hub-join{display:flex;gap:8px;flex-wrap:wrap;padding-top:4px}
+  .hub-join .name-input{flex:1 1 120px;font-size:.9rem}
+  .hub-join .btn-primary{flex-shrink:0;padding:10px 18px}
+  .log-row{align-self:flex-start}
+  .log-teams{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+  .log-team{display:flex;flex-direction:column;gap:8px;background:var(--panel);border:1px solid var(--line);border-radius:14px;padding:12px}
+  .log-team .slots{display:flex;flex-direction:column;gap:8px}
+  .log-team input{width:100%;font-size:.9rem}
+  #log-form{display:flex;flex-direction:column;gap:12px}
+  #log-msg{margin:0}
+  .board-row{
+    display:flex;align-items:center;gap:10px;background:var(--panel);border:1px solid var(--line);
+    border-radius:12px;padding:10px 14px;
+  }
+  .board-row .rank{font-size:.7rem;font-weight:800;letter-spacing:.04em;color:var(--warn);flex-shrink:0;width:9ch}
+  .board-row .nick{flex:1;min-width:0;font-weight:700;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .board-row .nums{font-size:.78rem;color:var(--muted);font-variant-numeric:tabular-nums;text-align:right}
+  .board-h{margin:14px 0 0;font-size:.8rem;letter-spacing:.14em;text-transform:uppercase;color:var(--muted)}
+  .feed-row{
+    background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:10px 14px;
+    font-size:.85rem;color:var(--muted);
+  }
+  .feed-row b{color:var(--text)}
+  .feed-row .won{color:var(--ok)}
+  #hub-drawer{
+    position:fixed;inset:0;z-index:60;background:rgba(5,8,12,.8);backdrop-filter:blur(6px);
+    display:flex;align-items:flex-end;justify-content:center;
+  }
+  .drawer-card{
+    width:min(680px,100%);max-height:82dvh;overflow-y:auto;background:var(--panel);
+    border:1px solid var(--line);border-radius:22px 22px 0 0;padding:18px 18px calc(18px + env(safe-area-inset-bottom));
+    display:flex;flex-direction:column;gap:12px;
+  }
+  .drawer-head{display:flex;align-items:center;justify-content:space-between}
+  .pend{
+    background:var(--panel2);border:1px solid var(--line);border-radius:14px;padding:12px 14px;
+    display:flex;flex-direction:column;gap:10px;
+  }
+  .pend .btns{display:flex;gap:8px;flex-wrap:wrap}
+  .pend .btns .btn-primary{padding:9px 16px;font-size:.9rem}
+  @media (max-width:720px){ .log-teams{grid-template-columns:1fr} }
   .homefoot{padding:10px 16px 22px}
 
   /* ---------- screen 2: config ---------- */
@@ -392,7 +483,7 @@
         <h2>Table Timer</h2>
         <p>Shot clocks &amp; chess-clock game banks for the table.</p>
       </button>
-      <button class="mode" id="btn-tableq" type="button" style="--mc:var(--t2)" aria-label="Table Queue — coming soon">
+      <button class="mode" id="btn-tableq" type="button" style="--mc:var(--t2)">
         <svg viewBox="0 0 24 24" width="60" height="60" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" aria-hidden="true">
           <circle cx="5.2" cy="6" r="2.1"/>
           <circle cx="5.2" cy="12" r="2.1"/>
@@ -400,8 +491,7 @@
           <path d="M10.4 6h8.6M10.4 12h8.6M10.4 18h8.6"/>
         </svg>
         <h2>Table Queue</h2>
-        <p>Who's up next — live queue of players in line.</p>
-        <span class="soon-badge">COMING SOON</span>
+        <p>Queue, matches &amp; rankings — sign in from your phone.</p>
       </button>
     </div>
     <footer class="fine center homefoot">Keyboard-first · <kbd>SPACE</kbd> / <kbd>ENTER</kbd> driven · screen stays awake during play</footer>
@@ -442,14 +532,97 @@
     </div>
   </section>
 
-  <!-- ============ Screen 1c: table queue placeholder ============ -->
+  <!-- ============ Screen 1c: mobile companion hub (queue / matches / ranks) ============ -->
   <section id="screen-queue" class="screen">
-    <div class="queue-wrap">
-      <span class="soon-badge">COMING SOON</span>
-      <h2>Table Queue</h2>
-      <p>See who's up next at the table — live queue of players in line.</p>
-      <p class="fine">Arriving in a future update, backed by the Cloudflare backend.</p>
-      <button id="btn-queue-back" class="btn-primary big" type="button">← Back to NYIT Pool</button>
+    <div class="hub-wrap">
+      <div class="hub-head">
+        <button id="btn-queue-back" class="btn-ghost" type="button">← NYIT Pool</button>
+        <span class="hub-title">Table Queue</span>
+        <span class="spacer"></span>
+        <span id="hub-user" class="hub-user" hidden></span>
+        <button id="hub-bell" class="btn-ghost hub-bell" type="button" hidden>🔔<span id="hub-bell-n" class="bell-n" hidden></span></button>
+        <button id="hub-admin-btn" class="btn-ghost" type="button" title="Admin unlock">🔒</button>
+      </div>
+
+      <div id="hub-gate">
+        <div class="gate-card">
+          <h3 id="gate-title">Sign in to the table</h3>
+          <p class="fine">Queue, match logging &amp; rankings live here. The timer stays login-free.</p>
+          <div class="seg gate-seg">
+            <button id="gate-signin" class="on" type="button">Sign in</button>
+            <button id="gate-create" type="button">Create account</button>
+          </div>
+          <label id="gate-nick-row" hidden>Nickname<input id="f-nick" class="name-input" maxlength="24" autocomplete="off"></label>
+          <label>Username<input id="f-user" class="name-input" maxlength="20" autocomplete="username"></label>
+          <label>PIN<input id="f-pin" class="name-input" type="password" inputmode="numeric" maxlength="6" autocomplete="off"></label>
+          <button id="gate-go" class="btn-primary big" type="button">Sign in</button>
+          <p id="gate-err" class="fine" style="color:var(--danger)" hidden></p>
+        </div>
+      </div>
+
+      <div id="hub-main" hidden>
+        <div class="seg hub-tabs">
+          <button data-tab="queue" class="on" type="button">Queue</button>
+          <button data-tab="log" type="button">Log match</button>
+          <button data-tab="board" type="button">Ranks</button>
+        </div>
+
+        <div id="tab-queue" class="hub-tab">
+          <div id="hub-playing" hidden></div>
+          <div id="hub-list"></div>
+          <form id="hub-join" class="hub-join" autocomplete="off">
+            <div class="seg" id="join-format">
+              <button type="button" data-v="1v1" class="on">1v1</button>
+              <button type="button" data-v="2v2">2v2</button>
+            </div>
+            <input id="join-mate" class="name-input" list="users-dl" placeholder="Teammate (username)" maxlength="20">
+            <input id="join-guest" class="name-input" placeholder="or guest name" maxlength="24">
+            <button class="btn-primary" type="submit">Join</button>
+          </form>
+          <datalist id="users-dl"></datalist>
+        </div>
+
+        <div id="tab-log" class="hub-tab" hidden>
+          <form id="log-form" autocomplete="off">
+            <div class="log-row seg" id="log-type">
+              <button type="button" data-v="ranked" class="on">Ranked</button>
+              <button type="button" data-v="casual">Casual</button>
+            </div>
+            <div class="log-row seg" id="log-format">
+              <button type="button" data-v="1v1" class="on">1v1</button>
+              <button type="button" data-v="2v2">2v2</button>
+              <button type="button" data-v="2v1">2v1</button>
+            </div>
+            <div class="log-teams">
+              <div class="log-team" id="lt1"><span class="lbl">TEAM 1</span><div class="slots"></div></div>
+              <div class="log-team" id="lt2"><span class="lbl">TEAM 2</span><div class="slots"></div></div>
+            </div>
+            <div class="log-row seg" id="log-winner">
+              <button type="button" data-v="1" class="on">Team 1 won</button>
+              <button type="button" data-v="2">Team 2 won</button>
+            </div>
+            <button class="btn-primary big" type="submit">Submit match</button>
+            <p id="log-msg" class="fine"></p>
+          </form>
+        </div>
+
+        <div id="tab-board" class="hub-tab" hidden>
+          <div id="board-list"></div>
+          <h4 class="board-h">Recent matches</h4>
+          <div id="board-feed"></div>
+        </div>
+      </div>
+
+      <div id="hub-drawer" hidden>
+        <div class="drawer-card">
+          <div class="drawer-head"><b>Pending confirmations</b><button id="drawer-close" class="rm-btn" type="button">×</button></div>
+          <div id="drawer-mine"></div>
+          <div id="drawer-admin" hidden>
+            <h4>Admin — all pending</h4>
+            <div id="drawer-admin-list"></div>
+          </div>
+        </div>
+      </div>
     </div>
   </section>
 
@@ -637,13 +810,16 @@ const anySolo = () => settings.rosters[0].length === 1 || settings.rosters[1].le
 
 /* ==================== screen router ==================== */
 function showScreen(name) {
-  if (app.screen === 'timer' && name !== 'timer') {
+  const from = app.screen;
+  if (from === 'timer' && name !== 'timer') {
     stopLoop();
     ScreenLock.release();
     hideOverlay();
     hideBanner();
     pauseGlowClear();
   }
+  if (name === 'queue') Hub.start();
+  else if (from === 'queue') Hub.stop();
   app.screen = name;
   $$('.screen').forEach(s => s.classList.toggle('active', s.id === 'screen-' + name));
   if (name === 'config') renderConfig();
@@ -658,6 +834,408 @@ $('#btn-queue-back').addEventListener('click', () => showScreen('home'));
 $('#btn-modesel-back').addEventListener('click', () => showScreen('home'));
 $('#btn-mode-shot').addEventListener('click', () => { Sound.ensure(); app.mode = 'shot'; showScreen('config'); });
 $('#btn-mode-game').addEventListener('click', () => { Sound.ensure(); app.mode = 'game'; showScreen('config'); });
+
+/* ==================== mobile companion hub (auth, queue, matches, ranks) ==================== */
+const Hub = (() => {
+  const TOKEN_KEY = 'nyit-hub-token';
+  const JSON_HDR = { 'content-type': 'application/json' };
+  let token = localStorage.getItem(TOKEN_KEY) || null;
+  let me = null;            // {id, username, nickname}
+  let adminPin = null;      // session-only admin unlock
+  let pollT = 0;
+  let tab = 'queue';
+  const userCache = new Map(); // username(lower) -> id
+
+  async function api(path, opts = {}) {
+    const headers = { ...(opts.headers || {}) };
+    if (token) headers.authorization = 'Bearer ' + token;
+    if (adminPin) headers['x-admin-pin'] = adminPin;
+    const res = await fetch('/api' + path, { ...opts, headers });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) throw new Error(data.error || ('HTTP ' + res.status));
+    return data;
+  }
+
+  /* ---------- auth gate ---------- */
+  let gateMode = 'signin';
+  const setGate = mode => {
+    gateMode = mode;
+    $('#gate-signin').classList.toggle('on', mode === 'signin');
+    $('#gate-create').classList.toggle('on', mode === 'create');
+    $('#gate-nick-row').hidden = mode !== 'create';
+    $('#gate-go').textContent = mode === 'signin' ? 'Sign in' : 'Create account';
+    $('#gate-err').hidden = true;
+  };
+  $('#gate-signin').addEventListener('click', () => setGate('signin'));
+  $('#gate-create').addEventListener('click', () => setGate('create'));
+  $('#gate-go').addEventListener('click', async () => {
+    const err = m => { const e = $('#gate-err'); e.textContent = m; e.hidden = false; };
+    const username = $('#f-user').value.trim().toLowerCase();
+    const pin = $('#f-pin').value.trim();
+    try {
+      let data;
+      if (gateMode === 'create') {
+        const nickname = $('#f-nick').value.trim();
+        if (!nickname) return err('pick a nickname');
+        data = await api('/auth/register', { method: 'POST', headers: JSON_HDR,
+          body: JSON.stringify({ username, nickname, pin }) });
+      } else {
+        data = await api('/auth/login', { method: 'POST', headers: JSON_HDR,
+          body: JSON.stringify({ username, pin }) });
+      }
+      token = data.token;
+      localStorage.setItem(TOKEN_KEY, token);
+      me = data.user;
+      $('#f-pin').value = '';
+      enterHub();
+    } catch (ex) { err(ex.message); }
+  });
+
+  async function boot() {
+    if (!token) return;
+    try {
+      me = (await api('/auth/me')).user;
+      enterHub();
+    } catch {
+      token = null; localStorage.removeItem(TOKEN_KEY);
+    }
+  }
+
+  function enterHub() {
+    $('#hub-gate').hidden = true;
+    $('#hub-main').hidden = false;
+    $('#hub-user').hidden = false;
+    $('#hub-user').textContent = me.nickname;
+    $('#hub-bell').hidden = false;
+    refreshAll();
+  }
+
+  /* ---------- header: bell + admin ---------- */
+  $('#hub-bell').addEventListener('click', async () => {
+    $('#hub-drawer').hidden = false;
+    await refreshDrawer();
+  });
+  $('#drawer-close').addEventListener('click', () => { $('#hub-drawer').hidden = true; });
+  $('#hub-admin-btn').addEventListener('click', () => {
+    const pin = prompt('Admin PIN');
+    if (pin === null) return;
+    adminPin = pin || null;
+    $('#hub-admin-btn').textContent = adminPin ? '🔓' : '🔒';
+    if (adminPin && !$('#hub-drawer').hidden) refreshDrawer();
+    refreshAll();
+  });
+
+  /* ---------- tabs ---------- */
+  $$('.hub-tabs button').forEach(b => b.addEventListener('click', () => {
+    tab = b.dataset.tab;
+    $$('.hub-tabs button').forEach(x => x.classList.toggle('on', x === b));
+    $('#tab-queue').hidden = tab !== 'queue';
+    $('#tab-log').hidden = tab !== 'log';
+    $('#tab-board').hidden = tab !== 'board';
+    refreshAll();
+  }));
+
+  /* ---------- generic seg control ---------- */
+  function segVal(root) { return $('[data-v].on', root).dataset.v; }
+  function wireSeg(root) {
+    $$('button', root).forEach(b => b.addEventListener('click', () => {
+      $$('button', root).forEach(x => x.classList.toggle('on', x === b));
+      if (root.id === 'log-format') buildLogSlots();
+    }));
+  }
+  ['#join-format', '#log-type', '#log-format', '#log-winner'].forEach(s => wireSeg($(s)));
+
+  /* ---------- user search datalist ---------- */
+  async function searchUsers(q) {
+    if (!q) return [];
+    const { users } = await api('/users?q=' + encodeURIComponent(q));
+    users.forEach(u => userCache.set(u.username, u.id));
+    $('#users-dl').innerHTML = '';
+    users.forEach(u => {
+      const o = el('option');
+      o.value = u.username;
+      o.textContent = u.nickname;
+      $('#users-dl').append(o);
+    });
+    return users;
+  }
+  let searchT = 0;
+  $('#join-mate').addEventListener('input', () => {
+    clearTimeout(searchT);
+    searchT = setTimeout(() => searchUsers($('#join-mate').value.trim().toLowerCase()), 250);
+  });
+
+  /* ---------- tab 1: live queue ---------- */
+  let parties = [];
+  async function refreshQueue() {
+    try {
+      parties = (await api('/queue')).parties;
+    } catch { parties = null; }
+    renderQueue();
+  }
+
+  function renderQueue() {
+    const playing = parties ? parties.filter(p => p.status === 'playing') : [];
+    const waiting = parties ? parties.filter(p => p.status === 'waiting') : [];
+    const nowBox = $('#hub-playing');
+    const list = $('#hub-list');
+
+    nowBox.hidden = !playing.length;
+    nowBox.innerHTML = '';
+    if (playing.length) {
+      nowBox.append(el('span', 'chip-now', playing.length === 2 ? 'ON THE TABLE' : 'HOLDING THE TABLE'));
+      const names = playing.map(p => p.p1.name + (p.p2 ? ' & ' + p.p2.name : ''));
+      const info = el('div', 'info');
+      info.append(el('div', 'names', playing.length === 2 ? names[0] + '  vs  ' + names[1] : names[0]));
+      const btns = el('div', 'actions');
+      playing.forEach(p => {
+        btns.append(actBtn('“' + (p.p1.name.split(' ')[0]) + '” out', async () => {
+          if (confirm('Remove ' + names[playing.indexOf(p)] + ' from the table? Next in line steps up.')) {
+            await api('/queue/' + p.id, { method: 'DELETE' }); refreshAll();
+          }
+        }));
+      });
+      nowBox.append(info, btns);
+    }
+
+    list.innerHTML = '';
+    if (parties === null) {
+      list.append(el('div', 'q-empty', "⚠️ Can't reach the queue — pull to refresh."));
+      return;
+    }
+    if (!waiting.length) {
+      const empty = el('div', 'q-empty');
+      empty.innerHTML = playing.length
+        ? 'Nobody waiting — table is covered.'
+        : '<span class="big">Table is free</span>Join the queue to claim it.';
+      list.append(empty);
+    }
+    waiting.forEach((p, k) => {
+      const mine = me && [p.p1, p.p2].some(x => x && x.registered && x.name === me.nickname);
+      const row = el('div', 'q-party');
+      const info = el('div', 'info');
+      const names = el('div', 'names');
+      names.append(document.createTextNode(p.p1.name + (p.p2 ? ' & ' + p.p2.name : '')));
+      const fmt = el('span', 'fmt', p.format.toUpperCase());
+      names.append(fmt);
+      info.append(names);
+      const btns = el('div', 'actions');
+      const vote = actBtn(`Skip ${p.votes}/3`, async () => {
+        const r = await api('/queue/' + p.id + '/vote-skip', { method: 'POST' });
+        if (r.skipped) refreshAll();
+      });
+      btns.append(vote);
+      if (mine) {
+        btns.append(actBtn('Leave', async () => {
+          await api('/queue/' + p.id, { method: 'DELETE' }); refreshAll();
+        }));
+      }
+      if (!p.p2 && p.format === '2v2' && me) {
+        const open = p.p1 && p.p1.name !== me.nickname;
+        if (open) btns.append(actBtn('+ Team up', async () => {
+          await api('/queue/' + p.id + '/teammate', { method: 'PATCH', headers: JSON_HDR, body: '{}' });
+          refreshAll();
+        }));
+      }
+      row.append(el('span', 'pos', String(k + 2)), info, btns);
+      list.append(row);
+    });
+  }
+
+  function actBtn(label, fn) {
+    const b = el('button', 'btn-ghost', label);
+    b.type = 'button';
+    b.addEventListener('click', async () => { try { await fn(); } catch (ex) { alert(ex.message); } });
+    return b;
+  }
+
+  $('#hub-join').addEventListener('submit', async e => {
+    e.preventDefault();
+    const mate = $('#join-mate').value.trim().toLowerCase();
+    const guest = $('#join-guest').value.trim();
+    const body = { format: segVal($('#join-format')) };
+    if (mate && userCache.has(mate)) body.p2_user_id = userCache.get(mate);
+    else if (mate) return alert('Teammate not found — pick a username from the list.');
+    else if (guest) body.p2_guest_name = guest;
+    try {
+      await api('/queue/join', { method: 'POST', headers: JSON_HDR, body: JSON.stringify(body) });
+      $('#join-mate').value = ''; $('#join-guest').value = '';
+      refreshAll();
+    } catch (ex) { alert(ex.message); }
+  });
+
+  /* ---------- tab 2: log match ---------- */
+  function buildLogSlots() {
+    const sizes = { '1v1': [1, 1], '2v2': [2, 2], '2v1': [2, 1] };
+    const [n1, n2] = sizes[segVal($('#log-format'))];
+    [['#lt1', n1], ['#lt2', n2]].forEach(([sel, n]) => {
+      const box = $('.slots', $(sel));
+      box.innerHTML = '';
+      for (let i = 0; i < n; i++) {
+        const inp = document.createElement('input');
+        inp.className = 'name-input';
+        inp.maxLength = 24;
+        inp.placeholder = i === 0 && sel === '#lt1' ? 'you' : 'username or name';
+        if (i === 0 && sel === '#lt1') inp.value = me ? me.username : '';
+        inp.autocomplete = 'off';
+        inp.addEventListener('input', () => {
+          clearTimeout(searchT);
+          const v = inp.value.trim().toLowerCase();
+          if (v) searchT = setTimeout(() => searchUsers(v), 250);
+        });
+        box.append(inp);
+      }
+    });
+  }
+
+  $('#log-form').addEventListener('submit', async e => {
+    e.preventDefault();
+    const msg = $('#log-msg');
+    msg.textContent = '';
+    const teams = { 1: [], 2: [] };
+    for (const sel of ['#lt1', '#lt2']) {
+      const team = sel === '#lt1' ? 1 : 2;
+      for (const inp of $$('.slots input', $(sel))) {
+        const v = inp.value.trim().toLowerCase();
+        if (!v) return msg.textContent = '⚠️ Fill every player slot (username or name).';
+        if (userCache.has(v)) teams[team].push({ user_id: userCache.get(v) });
+        else if (v === (me ? me.username : null)) return msg.textContent = '⚠️ Sign in first.';
+        else teams[team].push({ guest_name: inp.value.trim() });
+      }
+    }
+    const mine = [...teams[1], ...teams[2]].some(s => s.user_id === me.id);
+    if (!mine) teams[1][0] = { user_id: me.id }; // first slot defaults to you
+    try {
+      const r = await api('/matches/submit', {
+        method: 'POST', headers: JSON_HDR,
+        body: JSON.stringify({
+          match_type: segVal($('#log-type')),
+          format: segVal($('#log-format')),
+          winner_team: Number(segVal($('#log-winner'))),
+          teams,
+        }),
+      });
+      msg.style.color = 'var(--text)';
+      msg.textContent = r.committed
+        ? `✅ Committed${r.rating_delta != null ? ' (Δ ${r.rating_delta})' : ''}.`
+        : `⏳ Submitted — waiting on ${r.awaiting} confirmation(s).`;
+      buildLogSlots();
+    } catch (ex) { msg.style.color = 'var(--danger)'; msg.textContent = ex.message; }
+  });
+
+  /* ---------- tab 3: leaderboard ---------- */
+  const tier = (r, rd, games) =>
+    rd > 110 || games < 5 ? 'Provisional'
+    : r >= 1700 ? '8-Ball Elite'
+    : r >= 1550 ? 'Rack Shark'
+    : r >= 1400 ? 'Table Regular'
+    : 'Cue Rookie';
+
+  async function refreshBoard() {
+    if (tab !== 'board') return;
+    try {
+      const lb = (await api('/leaderboard')).leaderboard;
+      const list = $('#board-list');
+      list.innerHTML = '';
+      if (!lb.length) list.append(el('div', 'q-empty', 'No players yet — create an account and log a match.'));
+      lb.forEach(u => {
+        const row = el('div', 'board-row');
+        row.append(el('span', 'rank', tier(u.glicko_rating, u.glicko_rd, u.ranked_wins + u.ranked_losses)));
+        row.append(el('span', 'nick', u.nickname));
+        row.append(el('span', 'nums',
+          `${Math.round(u.glicko_rating)} · R ${u.ranked_wins}–${u.ranked_losses} · C ${u.casual_wins}–${u.casual_losses}`));
+        list.append(row);
+      });
+      const feed = $('#board-feed');
+      feed.innerHTML = '';
+      (await api('/matches')).matches.forEach(mm => {
+        const row = el('div', 'feed-row');
+        const t1 = el('b', null, mm.team1 || '?');
+        const t2 = el('b', null, mm.team2 || '?');
+        if (mm.winner_team === 1) t1.classList.add('won'); else t2.classList.add('won');
+        row.append(t1, document.createTextNode(' vs '), t2);
+        row.append(el('span', 'fmt', '  ' + mm.match_type.toUpperCase()));
+        feed.append(row);
+      });
+    } catch { /* keep old render */ }
+  }
+
+  /* ---------- drawer: confirmations & admin ---------- */
+  async function refreshDrawer() {
+    const mineBox = $('#drawer-mine');
+    mineBox.innerHTML = '';
+    try {
+      const { notifications, admin, admin_unlocked } = await api('/notifications');
+      setBell(notifications.length);
+      if (!notifications.length) mineBox.append(el('div', 'fine', 'Nothing waiting on you. 🎉'));
+      notifications.forEach(n => {
+        const card = el('div', 'pend');
+        card.append(el('div', null,
+          `${n.match_type.toUpperCase()} ${n.format} — Team ${n.winner_team} won · ${n.unconfirmed} unconfirmed${n.status === 'disputed' ? ' · DISPUTED' : ''}`));
+        const btns = el('div', 'btns');
+        btns.append(actBtn('✓ Confirm', async () => {
+          const r = await api('/matches/' + n.id + '/respond', { method: 'POST', headers: JSON_HDR, body: '{"action":"confirm"}' });
+          if (r.committed) { refreshAll(); refreshDrawer(); }
+          else refreshDrawer();
+        }));
+        btns.append(actBtn('✗ Dispute', async () => {
+          await api('/matches/' + n.id + '/respond', { method: 'POST', headers: JSON_HDR, body: '{"action":"dispute"}' });
+          refreshDrawer();
+        }));
+        card.append(btns);
+        mineBox.append(card);
+      });
+      const adminBox = $('#drawer-admin');
+      adminBox.hidden = !admin_unlocked;
+      const adminList = $('#drawer-admin-list');
+      adminList.innerHTML = '';
+      if (admin_unlocked && admin) {
+        if (!admin.length) adminList.append(el('div', 'fine', 'No pending matches.'));
+        admin.forEach(n => {
+          const card = el('div', 'pend');
+          card.append(el('div', null,
+            `#${n.id} ${n.match_type} ${n.format} — Team ${n.winner_team} won · ${n.unconfirmed} unconfirmed${n.status === 'disputed' ? ' · DISPUTED' : ''}`));
+          const btns = el('div', 'btns');
+          btns.append(actBtn('⚡ Force approve', async () => {
+            await api('/matches/' + n.id + '/admin-approve', { method: 'POST' });
+            refreshAll(); refreshDrawer();
+          }));
+          card.append(btns);
+          adminList.append(card);
+        });
+      }
+    } catch { mineBox.append(el('div', 'fine', 'Sign in to see confirmations.')); }
+  }
+
+  function setBell(n) {
+    const b = $('#hub-bell-n');
+    b.hidden = !n;
+    b.textContent = n > 9 ? '9+' : n;
+  }
+
+  /* ---------- lifecycle ---------- */
+  async function refreshAll() {
+    if (!me) return;
+    await refreshQueue();
+    if (tab === 'board') await refreshBoard();
+    try {
+      const { notifications } = await api('/notifications');
+      setBell(notifications.length);
+    } catch { /* offline */ }
+  }
+
+  function start() {
+    if (!me) { $('#hub-gate').hidden = false; $('#hub-main').hidden = true; boot(); }
+    else enterHub();
+    refreshQueue(); // public preview even before login
+    clearInterval(pollT);
+    pollT = setInterval(() => { if (me) refreshAll(); else refreshQueue(); }, 5000);
+  }
+  function stop() { clearInterval(pollT); pollT = 0; }
+
+  buildLogSlots();
+  return { start, stop };
+})();
 
 /* ==================== screen 2: config / handicaps ==================== */
 /* difficulty palette — preset chips glow red → yellow → green → light blue, left to right */
