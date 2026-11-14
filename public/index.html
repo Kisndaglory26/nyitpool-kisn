@@ -219,6 +219,14 @@
   .mode-grid{display:grid;grid-template-columns:1fr 1fr;gap:8px}
   .mode-grid button{padding:10px 12px;line-height:1.35;text-align:center}
   .mode-grid button.on{color:var(--accent);border-color:var(--accent)}
+  .acct-row{display:flex;gap:8px;flex-wrap:wrap;align-items:center}
+  .acct-row .name-input{flex:1 1 110px;min-width:0;font-size:.9rem}
+  .acct-row .pin-in{flex:0 1 100px}
+  #drawer-account{display:flex;flex-direction:column;gap:10px}
+  .sched-grid{display:grid;grid-template-columns:1fr 1fr;gap:8px}
+  .sched-grid label{display:flex;flex-direction:column;gap:4px;font-size:.68rem;font-weight:800;letter-spacing:.1em;color:var(--muted)}
+  .sched-grid input{color-scheme:dark}
+  .drawer-card h4{margin:6px 0 0;font-size:.75rem;letter-spacing:.14em;text-transform:uppercase;color:var(--muted)}
   @media (max-width:720px){ .log-teams{grid-template-columns:1fr} }
   .homefoot{padding:10px 16px 22px}
 
@@ -627,8 +635,31 @@
 
       <div id="hub-drawer" hidden>
         <div class="drawer-card">
-          <div class="drawer-head"><b>Pending confirmations</b><button id="drawer-close" class="rm-btn" type="button">×</button></div>
+          <div class="drawer-head"><b>Account &amp; notifications</b><button id="drawer-close" class="rm-btn" type="button">×</button></div>
+
+          <div id="drawer-account">
+            <h4>My account</h4>
+            <div class="acct-row">
+              <input id="a-nick" class="name-input" maxlength="24" placeholder="Nickname">
+              <button class="btn-ghost" data-act="nick" type="button">Save</button>
+            </div>
+            <div class="acct-row">
+              <input id="a-user" class="name-input" maxlength="20" placeholder="username" autocomplete="off">
+              <input id="a-user-pin" class="name-input pin-in" type="password" inputmode="numeric" maxlength="6" placeholder="PIN" autocomplete="off">
+              <button class="btn-ghost" data-act="user" type="button">Save</button>
+            </div>
+            <div class="acct-row">
+              <input id="a-pin-cur" class="name-input pin-in" type="password" inputmode="numeric" maxlength="6" placeholder="current PIN" autocomplete="off">
+              <input id="a-pin-new" class="name-input pin-in" type="password" inputmode="numeric" maxlength="6" placeholder="new PIN" autocomplete="off">
+              <button class="btn-ghost" data-act="pin" type="button">Save</button>
+            </div>
+            <p id="acct-msg" class="fine"></p>
+            <button id="a-signout" class="btn-ghost" type="button">Sign out</button>
+          </div>
+
+          <h4>Pending confirmations</h4>
           <div id="drawer-mine"></div>
+
           <div id="drawer-admin" hidden>
             <h4>Queue status</h4>
             <div class="mode-grid" id="admin-modes">
@@ -637,6 +668,21 @@
               <button class="btn-ghost" data-m="duo-only" type="button">🕒 Duo only<br><span class="fine">no solos</span></button>
               <button class="btn-ghost" data-m="offline" type="button">⛔ Offline<br><span class="fine">clears queue</span></button>
             </div>
+
+            <h4>Queue hours (ET)</h4>
+            <div class="sched-grid">
+              <label>Open<input id="s-open" class="name-input" type="time"></label>
+              <label>Duo-only from<input id="s-duo_start" class="name-input" type="time"></label>
+              <label>Duo-only until<input id="s-duo_end" class="name-input" type="time"></label>
+              <label>Close<input id="s-close" class="name-input" type="time"></label>
+            </div>
+            <p class="fine">Duo window from = until disables the solo restriction.</p>
+            <div class="acct-row">
+              <button id="s-save" class="btn-primary" type="button">Save hours</button>
+              <button id="s-wipe" class="btn-ghost armed" type="button">Wipe queue now</button>
+            </div>
+            <p id="sched-msg" class="fine"></p>
+
             <h4>Admin — all pending</h4>
             <div id="drawer-admin-list"></div>
           </div>
@@ -935,14 +981,61 @@ const Hub = (() => {
     refreshAll();
   }
 
-  /* ---------- header: bell + admin ---------- */
-  $('#hub-bell').addEventListener('click', async () => {
+  /* ---------- header: bell + user badge + admin ---------- */
+  async function openDrawer() {
     $('#hub-drawer').hidden = false;
+    prefillAccount();
     await refreshDrawer();
-  });
+  }
+  $('#hub-bell').addEventListener('click', openDrawer);
+  $('#hub-user').addEventListener('click', openDrawer);
   $('#drawer-close').addEventListener('click', () => { $('#hub-drawer').hidden = true; });
   $$('#admin-modes button').forEach(b =>
     b.addEventListener('click', () => setQueueMode(b.dataset.m)));
+
+  /* ---------- account editor ---------- */
+  function prefillAccount() {
+    if (!me) return;
+    $('#a-nick').value = me.nickname;
+    $('#a-user').value = me.username;
+    $('#a-user-pin').value = '';
+    $('#a-pin-cur').value = '';
+    $('#a-pin-new').value = '';
+    $('#acct-msg').textContent = '';
+  }
+
+  $$('#drawer-account [data-act]').forEach(btn => btn.addEventListener('click', async () => {
+    const msg = $('#acct-msg');
+    msg.style.color = 'var(--muted)';
+    msg.textContent = '';
+    try {
+      let body = null;
+      if (btn.dataset.act === 'nick') {
+        const v = $('#a-nick').value.trim();
+        if (!v) throw new Error('nickname required');
+        body = { nickname: v };
+      } else if (btn.dataset.act === 'user') {
+        body = { username: $('#a-user').value.trim(), current_pin: $('#a-user-pin').value.trim() };
+      } else {
+        body = { current_pin: $('#a-pin-cur').value.trim(), new_pin: $('#a-pin-new').value.trim() };
+      }
+      const r = await api('/account', { method: 'PATCH', body });
+      if (r.nickname) { me.nickname = r.nickname; $('#hub-user').textContent = me.nickname; }
+      if (r.username) me.username = r.username;
+      if (r.pin_changed) { $('#a-pin-cur').value = ''; $('#a-pin-new').value = ''; }
+      msg.textContent = '✓ Saved';
+    } catch (ex) { msg.style.color = 'var(--danger)'; msg.textContent = ex.message; }
+  }));
+
+  $('#a-signout').addEventListener('click', () => {
+    token = null; me = null;
+    localStorage.removeItem(TOKEN_KEY);
+    $('#hub-drawer').hidden = true;
+    $('#hub-gate').hidden = false;
+    $('#hub-main').hidden = true;
+    $('#hub-user').hidden = true;
+    $('#hub-bell').hidden = true;
+  });
   $('#hub-admin-btn').addEventListener('click', () => {
     const pin = prompt('Admin PIN');
     if (pin === null) return;
@@ -996,12 +1089,18 @@ const Hub = (() => {
 
   /* ---------- tab 1: live queue ---------- */
   let parties = [];
-  let qMode = { mode: 'open', override: null }; // last known queue state
+  let qMode = { mode: 'open', override: null, schedule: { open: '09:00', duo_start: '12:00', duo_end: '18:00', close: '21:00' } };
+  const fmt12 = hhmm => {
+    const [h, m] = hhmm.split(':').map(Number);
+    const ampm = h >= 12 ? 'pm' : 'am';
+    const hr = h % 12 === 0 ? 12 : h % 12;
+    return m ? `${hr}:${String(m).padStart(2, '0')}${ampm}` : `${hr}${ampm}`;
+  };
   async function refreshQueue() {
     try {
       const r = await api('/queue');
       parties = r.parties;
-      qMode = { mode: r.mode, override: r.override };
+      qMode = { mode: r.mode, override: r.override, schedule: r.schedule || qMode.schedule };
     } catch { parties = null; }
     renderQueue();
   }
@@ -1009,7 +1108,7 @@ const Hub = (() => {
   async function setQueueMode(mode) {
     try {
       const r = await api('/admin/queue-mode', { method: 'POST', body: { mode } });
-      qMode = { mode: r.mode, override: r.override };
+      qMode = { mode: r.mode, override: r.override, schedule: r.schedule || qMode.schedule };
       renderQueue();
       refreshDrawer();
     } catch (ex) { alert(ex.message); }
@@ -1019,15 +1118,17 @@ const Hub = (() => {
     const b = $('#queue-hours');
     b.hidden = false;
     b.classList.remove('duo-only', 'closed');
+    const s = qMode.schedule;
+    const span = ` · ${fmt12(s.open)}–${fmt12(s.close)} ET`;
     const adminTag = qMode.override ? ' · ADMIN SET' : '';
     if (qMode.mode === 'offline') {
       b.classList.add('closed');
-      b.textContent = '⛔ Queue OFFLINE' + adminTag + ' — opens 9am ET (clears nightly at 9pm)';
+      b.textContent = '⛔ Queue OFFLINE' + adminTag + ` — opens ${fmt12(s.open)} ET`;
     } else if (qMode.mode === 'duo-only') {
       b.classList.add('duo-only');
-      b.textContent = '🕒 Queue open — DUO ONLY' + adminTag + ' (solo returns 6pm ET)';
+      b.textContent = '🕒 Queue open — DUO ONLY' + adminTag + ` (solo returns ${fmt12(s.duo_end)})`;
     } else {
-      b.textContent = '🟢 Queue open — Solo & Duo' + adminTag + ' · 9am–9pm ET';
+      b.textContent = '🟢 Queue open — Solo & Duo' + adminTag + span;
     }
     // gate the join form
     const soloBtn = $('#join-format [data-v="solo"]');
@@ -1258,6 +1359,11 @@ const Hub = (() => {
       });
       const adminBox = $('#drawer-admin');
       adminBox.hidden = !admin_unlocked;
+      // prefill schedule editor with the live config
+      ['open', 'duo_start', 'duo_end', 'close'].forEach(k => {
+        const inp = $('#s-' + k);
+        if (inp && qMode.schedule[k]) inp.value = qMode.schedule[k];
+      });
       // reflect current queue mode on the admin switcher
       $$('#admin-modes button').forEach(b => {
         const active = b.dataset.m === (qMode.override || 'auto')
@@ -1283,6 +1389,30 @@ const Hub = (() => {
       }
     } catch { mineBox.append(el('div', 'fine', 'Sign in to see confirmations.')); }
   }
+
+  /* ---------- admin: schedule + wipe ---------- */
+  $('#s-save').addEventListener('click', async () => {
+    const msg = $('#sched-msg');
+    msg.style.color = 'var(--muted)';
+    msg.textContent = '';
+    try {
+      const schedule = {};
+      for (const k of ['open', 'duo_start', 'duo_end', 'close']) schedule[k] = $('#s-' + k).value;
+      const r = await api('/admin/queue-config', { method: 'POST', body: { schedule } });
+      qMode = { mode: r.mode, override: r.override, schedule: r.schedule };
+      renderQueue();
+      msg.textContent = '✓ Hours saved';
+    } catch (ex) { msg.style.color = 'var(--danger)'; msg.textContent = ex.message; }
+  });
+
+  $('#s-wipe').addEventListener('click', async () => {
+    if (!confirm('Wipe the live queue? Everyone waiting/playing is removed.')) return;
+    try {
+      await api('/admin/clear-queue', { method: 'POST' });
+      refreshAll();
+      $('#sched-msg').textContent = '✓ Queue wiped';
+    } catch (ex) { alert(ex.message); }
+  });
 
   function setBell(n) {
     const b = $('#hub-bell-n');
