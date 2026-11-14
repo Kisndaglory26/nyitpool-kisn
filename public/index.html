@@ -215,6 +215,9 @@
   }
   .pend .btns{display:flex;gap:8px;flex-wrap:wrap}
   .pend .btns .btn-primary{padding:9px 16px;font-size:.9rem}
+  .mode-grid{display:grid;grid-template-columns:1fr 1fr;gap:8px}
+  .mode-grid button{padding:10px 12px;line-height:1.35;text-align:center}
+  .mode-grid button.on{color:var(--accent);border-color:var(--accent)}
   @media (max-width:720px){ .log-teams{grid-template-columns:1fr} }
   .homefoot{padding:10px 16px 22px}
 
@@ -625,6 +628,13 @@
           <div class="drawer-head"><b>Pending confirmations</b><button id="drawer-close" class="rm-btn" type="button">×</button></div>
           <div id="drawer-mine"></div>
           <div id="drawer-admin" hidden>
+            <h4>Queue status</h4>
+            <div class="mode-grid" id="admin-modes">
+              <button class="btn-ghost" data-m="auto" type="button">🕰 Auto<br><span class="fine">time windows</span></button>
+              <button class="btn-ghost" data-m="open" type="button">🟢 Open<br><span class="fine">solo + duo</span></button>
+              <button class="btn-ghost" data-m="duo-only" type="button">🕒 Duo only<br><span class="fine">no solos</span></button>
+              <button class="btn-ghost" data-m="offline" type="button">⛔ Offline<br><span class="fine">clears queue</span></button>
+            </div>
             <h4>Admin — all pending</h4>
             <div id="drawer-admin-list"></div>
           </div>
@@ -855,9 +865,14 @@ const Hub = (() => {
 
   async function api(path, opts = {}) {
     const headers = { ...(opts.headers || {}) };
+    if (opts.body != null) headers['content-type'] = 'application/json';
     if (token) headers.authorization = 'Bearer ' + token;
     if (adminPin) headers['x-admin-pin'] = adminPin;
-    const res = await fetch('/api' + path, { ...opts, headers });
+    const res = await fetch('/api' + path, {
+      ...opts,
+      body: opts.body != null ? JSON.stringify(opts.body) : undefined,
+      headers,
+    });
     const data = await res.json().catch(() => ({}));
     if (!res.ok) throw new Error(data.error || ('HTTP ' + res.status));
     return data;
@@ -885,10 +900,10 @@ const Hub = (() => {
         const nickname = $('#f-nick').value.trim();
         if (!nickname) return err('pick a nickname');
         data = await api('/auth/register', { method: 'POST', headers: JSON_HDR,
-          body: JSON.stringify({ username, nickname, pin }) });
+          body: { username, nickname, pin } });
       } else {
         data = await api('/auth/login', { method: 'POST', headers: JSON_HDR,
-          body: JSON.stringify({ username, pin }) });
+          body: { username, pin } });
       }
       token = data.token;
       localStorage.setItem(TOKEN_KEY, token);
@@ -923,6 +938,8 @@ const Hub = (() => {
     await refreshDrawer();
   });
   $('#drawer-close').addEventListener('click', () => { $('#hub-drawer').hidden = true; });
+  $$('#admin-modes button').forEach(b =>
+    b.addEventListener('click', () => setQueueMode(b.dataset.m)));
   $('#hub-admin-btn').addEventListener('click', () => {
     const pin = prompt('Admin PIN');
     if (pin === null) return;
@@ -976,38 +993,48 @@ const Hub = (() => {
 
   /* ---------- tab 1: live queue ---------- */
   let parties = [];
-  let hours = { open: true, solo: true }; // last known queue window state
+  let qMode = { mode: 'open', override: null }; // last known queue state
   async function refreshQueue() {
     try {
       const r = await api('/queue');
       parties = r.parties;
-      hours = r.hours || hours;
+      qMode = { mode: r.mode, override: r.override };
     } catch { parties = null; }
     renderQueue();
+  }
+
+  async function setQueueMode(mode) {
+    try {
+      const r = await api('/admin/queue-mode', { method: 'POST', body: { mode } });
+      qMode = { mode: r.mode, override: r.override };
+      renderQueue();
+      refreshDrawer();
+    } catch (ex) { alert(ex.message); }
   }
 
   function renderHours() {
     const b = $('#queue-hours');
     b.hidden = false;
     b.classList.remove('duo-only', 'closed');
-    if (!hours.open) {
+    const adminTag = qMode.override ? ' · ADMIN SET' : '';
+    if (qMode.mode === 'offline') {
       b.classList.add('closed');
-      b.textContent = '⛔ Queue closed — opens 9am ET (clears nightly at 9pm)';
-    } else if (!hours.solo) {
+      b.textContent = '⛔ Queue OFFLINE' + adminTag + ' — opens 9am ET (clears nightly at 9pm)';
+    } else if (qMode.mode === 'duo-only') {
       b.classList.add('duo-only');
-      b.textContent = '🕒 Queue open — DUO ONLY until 6pm ET (solo returns 6–9pm)';
+      b.textContent = '🕒 Queue open — DUO ONLY' + adminTag + ' (solo returns 6pm ET)';
     } else {
-      b.textContent = '🟢 Queue open — Solo & Duo · 9am–9pm ET';
+      b.textContent = '🟢 Queue open — Solo & Duo' + adminTag + ' · 9am–9pm ET';
     }
     // gate the join form
     const soloBtn = $('#join-format [data-v="solo"]');
     const joinBtn = $('#hub-join .btn-primary');
-    soloBtn.disabled = !hours.solo;
-    joinBtn.disabled = !hours.open;
+    soloBtn.disabled = qMode.mode === 'duo-only';
+    joinBtn.disabled = qMode.mode === 'offline';
     const wantSolo = segVal($('#join-format')) === 'solo';
     $('#join-mate').hidden = wantSolo;
     $('#join-guest').hidden = wantSolo;
-    if (!hours.solo && wantSolo) $('#join-format [data-v="duo"]').click();
+    if (qMode.mode === 'duo-only' && wantSolo) $('#join-format [data-v="duo"]').click();
   }
 
   function renderQueue() {
@@ -1042,8 +1069,8 @@ const Hub = (() => {
     }
     if (!waiting.length) {
       const empty = el('div', 'q-empty');
-      if (!hours.open) {
-        empty.innerHTML = '<span class="big">Queue closed</span>Opens 9am ET — nightly clear at 9pm.';
+      if (qMode.mode === 'offline') {
+        empty.innerHTML = '<span class="big">Queue offline</span>Opens 9am ET — or an admin can bring it online.';
       } else {
         empty.innerHTML = playing.length
           ? 'Nobody waiting — table is covered.'
@@ -1074,7 +1101,7 @@ const Hub = (() => {
       if (!p.p2 && p.format === 'duo' && me) {
         const open = p.p1 && p.p1.name !== me.nickname;
         if (open) btns.append(actBtn('+ Team up', async () => {
-          await api('/queue/' + p.id + '/teammate', { method: 'PATCH', headers: JSON_HDR, body: '{}' });
+          await api('/queue/' + p.id + '/teammate', { method: 'PATCH', body: {} });
           refreshAll();
         }));
       }
@@ -1099,7 +1126,7 @@ const Hub = (() => {
     else if (mate) return alert('Teammate not found — pick a username from the list.');
     else if (guest) body.p2_guest_name = guest;
     try {
-      await api('/queue/join', { method: 'POST', headers: JSON_HDR, body: JSON.stringify(body) });
+      await api('/queue/join', { method: 'POST', body });
       $('#join-mate').value = ''; $('#join-guest').value = '';
       refreshAll();
     } catch (ex) { alert(ex.message); }
@@ -1148,13 +1175,13 @@ const Hub = (() => {
     if (!mine) teams[1][0] = { user_id: me.id }; // first slot defaults to you
     try {
       const r = await api('/matches/submit', {
-        method: 'POST', headers: JSON_HDR,
-        body: JSON.stringify({
+        method: 'POST',
+        body: {
           match_type: segVal($('#log-type')),
           format: segVal($('#log-format')),
           winner_team: Number(segVal($('#log-winner'))),
           teams,
-        }),
+        },
       });
       msg.style.color = 'var(--text)';
       msg.textContent = r.committed
@@ -1215,12 +1242,12 @@ const Hub = (() => {
           `${n.match_type.toUpperCase()} ${n.format} — Team ${n.winner_team} won · ${n.unconfirmed} unconfirmed${n.status === 'disputed' ? ' · DISPUTED' : ''}`));
         const btns = el('div', 'btns');
         btns.append(actBtn('✓ Confirm', async () => {
-          const r = await api('/matches/' + n.id + '/respond', { method: 'POST', headers: JSON_HDR, body: '{"action":"confirm"}' });
+          const r = await api('/matches/' + n.id + '/respond', { method: 'POST', body: { action: 'confirm' } });
           if (r.committed) { refreshAll(); refreshDrawer(); }
           else refreshDrawer();
         }));
         btns.append(actBtn('✗ Dispute', async () => {
-          await api('/matches/' + n.id + '/respond', { method: 'POST', headers: JSON_HDR, body: '{"action":"dispute"}' });
+          await api('/matches/' + n.id + '/respond', { method: 'POST', body: { action: 'dispute' } });
           refreshDrawer();
         }));
         card.append(btns);
@@ -1228,6 +1255,12 @@ const Hub = (() => {
       });
       const adminBox = $('#drawer-admin');
       adminBox.hidden = !admin_unlocked;
+      // reflect current queue mode on the admin switcher
+      $$('#admin-modes button').forEach(b => {
+        const active = b.dataset.m === (qMode.override || 'auto')
+          || (b.dataset.m !== 'auto' && !qMode.override && qMode.mode === b.dataset.m);
+        b.classList.toggle('on', active);
+      });
       const adminList = $('#drawer-admin-list');
       adminList.innerHTML = '';
       if (admin_unlocked && admin) {

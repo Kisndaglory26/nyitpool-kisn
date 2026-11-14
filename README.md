@@ -57,6 +57,7 @@ Local dev: create `.dev.vars` (gitignored) with `ADMIN_PIN=...` and `SESSION_SEC
 - **Accounts**: username + 4–6 digit PIN (PBKDF2-SHA256 hash, HMAC-signed session token kept in localStorage).
 - **Live queue**: the table hosts **two parties** — a party is a team: **Solo** (one player) or **Duo** (one or two; teammate/guest attachable, open slots claimable while waiting). Winner stays, loser's seat refills from the line. Solo vs Duo at the table = 2v1 (log it as `2v1`).
 - **Queue hours (ET)**: open **9am–9pm**; solo play allowed **9–12am** and **6–9pm**, **duo-only noon–6pm**. At close the queue clears itself and joins are refused (403) — enforced server-side in `America/New_York`.
+- **Admin override**: sign in, tap 🔒, enter the `ADMIN_PIN` — the drawer gains a **Queue status** switcher: 🕰 **Auto** (clock rules) / 🟢 **Open** / 🕒 **Duo only** / ⛔ **Offline** (wipes the live queue). Override beats the clock until set back to Auto. `POST /api/admin/queue-mode` `{mode}` with `X-Admin-Pin`.
 - **3-vote consensus skip**: any three accounts can skip a party out of the line.
 - **Match logging**: ranked (all registered) or casual — any guest forces casual. Other registered players confirm in the notification drawer (unanimous); disputes escalate to admin force-approve.
 - **Glicko-2 ratings**: per-player updates vs composite-team opponents for 2v2/2v1; tiers: Provisional / Cue Rookie / Table Regular / Rack Shark / 8-Ball Elite.

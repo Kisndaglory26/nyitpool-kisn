@@ -93,13 +93,16 @@ class HttpError extends Error {
   constructor(status, msg) { super(msg); this.status = status; }
 }
 
-/* ============================ queue hours (America/New_York) ============================ */
+/* ============================ queue mode: time windows + admin override ============================ */
+/* Base mode comes from ET time windows (9am–9pm open; duo-only noon–6pm; closed otherwise).
+   An admin (X-Admin-Pin) may override to 'open' | 'duo-only' | 'offline' — or 'auto' to
+   hand control back to the clock. Effective mode = override ?? window mode. */
 
 const TZ = 'America/New_York';
 const QUEUE_OPEN = 9 * 60;        // 9:00am
 const QUEUE_CLOSE = 21 * 60;      // 9:00pm — queue clears, no joins
 const SOLO_BLOCK_START = 12 * 60; // noon
-const SOLO_BLOCK_END = 18 * 60;   // 6:00pm — no solo/1v1 joins in this window
+const SOLO_BLOCK_END = 18 * 60;   // 6:00pm
 
 function nyMinutes(env) {
   if (env.TEST_TIME_OVERRIDE && /^\d{1,2}:\d{2}$/.test(env.TEST_TIME_OVERRIDE)) {
@@ -113,21 +116,40 @@ function nyMinutes(env) {
   return h * 60 + m;
 }
 
-function queueState(env) {
+function windowMode(env) {
   const t = nyMinutes(env);
-  if (t < QUEUE_OPEN || t >= QUEUE_CLOSE) return { open: false, solo: false };
-  return { open: true, solo: !(t >= SOLO_BLOCK_START && t < SOLO_BLOCK_END) };
+  if (t < QUEUE_OPEN || t >= QUEUE_CLOSE) return 'offline';
+  if (t >= SOLO_BLOCK_START && t < SOLO_BLOCK_END) return 'duo-only';
+  return 'open';
 }
 
-/* outside hours the queue wipes itself on the first touch — no cron needed */
-async function clearIfClosed(db, env) {
-  const state = queueState(env);
-  if (state.open) return state;
+async function getOverride(db) {
+  const row = await db.prepare("SELECT value FROM queue_settings WHERE key = 'mode_override'").first();
+  return row ? row.value : null;
+}
+
+async function setOverride(db, mode /* null = auto */) {
+  if (mode == null) {
+    await db.prepare("DELETE FROM queue_settings WHERE key = 'mode_override'").run();
+    return;
+  }
+  await db.prepare(
+    "INSERT INTO queue_settings (key, value, updated_at) VALUES ('mode_override', ?, ?) " +
+    'ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at'
+  ).bind(mode, Date.now()).run();
+}
+
+/* offline (window or override) wipes the live queue on touch */
+async function clearQueue(db) {
   await db.batch([
     db.prepare("UPDATE queue_parties SET status = 'skipped' WHERE status IN ('waiting','playing')"),
     db.prepare('DELETE FROM skip_votes'),
   ]);
-  return state;
+}
+
+async function effectiveMode(db, env) {
+  const ov = await getOverride(db);
+  return { mode: ov || windowMode(env), override: ov };
 }
 
 /* ============================ queue helpers ============================ */
@@ -281,28 +303,43 @@ async function handleApi(request, env, url) {
     return json({ users: results });
   }
 
+  /* ---------- admin: queue mode override ---------- */
+  if (pathname === '/api/admin/queue-mode' && method === 'POST') {
+    if (!(await isAdmin(request, env))) return bad('admin pin required', 403);
+    const body = await request.json().catch(() => null);
+    const mode = body?.mode;
+    if (!['auto', 'open', 'duo-only', 'offline'].includes(mode)) {
+      return bad('mode must be auto, open, duo-only or offline');
+    }
+    await setOverride(env.DB, mode === 'auto' ? null : mode);
+    if (mode === 'offline') await clearQueue(env.DB);
+    const eff = await effectiveMode(env.DB, env);
+    return json({ ok: true, mode: eff.mode, override: eff.override });
+  }
+
   /* ---------- party queue ---------- */
   if (pathname === '/api/queue' && method === 'GET') {
-    const hours = await clearIfClosed(env.DB, env);
+    const eff = await effectiveMode(env.DB, env);
+    if (eff.mode === 'offline') await clearQueue(env.DB); // window closed or admin offline
     const { results } = await env.DB.prepare(
       PARTY_SELECT + ` WHERE p.status IN ('playing', 'waiting')
                        ORDER BY CASE p.status WHEN 'playing' THEN 0 ELSE 1 END, p.position`
     ).all();
-    return json({ parties: results.map(shapeParty), hours });
+    return json({ parties: results.map(shapeParty), mode: eff.mode, override: eff.override });
   }
 
   if (pathname === '/api/queue/join' && method === 'POST') {
     const user = await requireUser(request, env);
-    const state = queueState(env);
-    if (!state.open) return bad('queue is closed — open 9am to 9pm ET', 403);
+    const eff = await effectiveMode(env.DB, env);
+    if (eff.mode === 'offline') return bad('queue is offline right now', 403);
     const body = await request.json().catch(() => null);
     const format = body?.format;
     if (!['solo', 'duo'].includes(format)) return bad('format must be solo or duo');
     if (format === 'solo' && (body?.p2_user_id || body?.p2_guest_name)) {
       return bad('solo parties have no second player');
     }
-    if (format === 'solo' && !state.solo) {
-      return bad('solo play is restricted — duo only from noon to 6pm ET', 403);
+    if (format === 'solo' && eff.mode === 'duo-only') {
+      return bad('queue is duo-only right now', 403);
     }
     let p2UserId = null, p2Guest = null;
     if (body?.p2_user_id) {
