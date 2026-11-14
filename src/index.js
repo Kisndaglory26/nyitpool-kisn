@@ -178,7 +178,8 @@ async function promoteNext(db) {
 const PARTY_SELECT = `
   SELECT p.id, p.format, p.status, p.position, p.created_at,
          p.created_by_user_id, p.p1_user_id, p.p2_user_id, p.p2_guest_name,
-         u1.nickname AS p1_nick, u2.nickname AS p2_nick,
+         u1.nickname AS p1_nick, u1.username AS p1_user, u1.glicko_rating AS p1_elo,
+         u2.nickname AS p2_nick, u2.username AS p2_user, u2.glicko_rating AS p2_elo,
          (SELECT COUNT(*) FROM skip_votes v WHERE v.party_id = p.id) AS votes
   FROM queue_parties p
   LEFT JOIN users u1 ON u1.id = p.p1_user_id
@@ -186,13 +187,15 @@ const PARTY_SELECT = `
 `;
 
 function shapeParty(row) {
-  const mk = (uid, nick, guest) => uid || guest
-    ? { name: uid ? nick : `Guest: ${guest}`, registered: !!uid }
-    : null;
+  const mk = (uid, nick, user, elo, guest) => uid
+    ? { name: nick, username: user, elo: Math.round(elo), registered: true }
+    : guest
+      ? { name: `Guest: ${guest}`, username: null, elo: null, registered: false }
+      : null;
   return {
     id: row.id, format: row.format, status: row.status, votes: row.votes,
-    p1: mk(row.p1_user_id, row.p1_nick, row.p1_guest_name),
-    p2: mk(row.p2_user_id, row.p2_nick, row.p2_guest_name),
+    p1: mk(row.p1_user_id, row.p1_nick, row.p1_user, row.p1_elo, row.p1_guest_name),
+    p2: mk(row.p2_user_id, row.p2_nick, row.p2_user, row.p2_elo, row.p2_guest_name),
   };
 }
 
